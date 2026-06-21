@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kognios"
+version = "1.1.8"
+description = "A from-scratch Python agent framework with Tools, Memory, Knowledge/RAG, Team routing, streaming, and async."
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+keywords = ["agent", "llm", "ai", "rag", "tools", "anthropic", "openai"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "anthropic>=0.25",
+    "openai>=1.30",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4.0"]
+structured = ["pydantic>=2.0"]
+mcp = ["mcp>=1.0"]
+vector = ["numpy>=1.24"]
+serve = ["fastapi>=0.100", "uvicorn>=0.20"]
+docx = ["python-docx>=1.0"]
+browser = ["playwright>=1.40"]
+bedrock = ["anthropic>=0.25"]
+prometheus = ["prometheus-client>=0.17"]
+all = ["pypdf>=4.0", "pydantic>=2.0", "mcp>=1.0", "numpy>=1.24", "fastapi>=0.100", "uvicorn>=0.20", "python-docx>=1.0", "playwright>=1.40", "prometheus-client>=0.17"]
+dev = ["pytest", "pytest-asyncio", "ruff", "pydantic>=2.0", "mcp>=1.0", "numpy>=1.24", "fastapi>=0.100", "uvicorn>=0.20", "httpx>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/lavkeshdwivedi/kogniOS"
+Repository = "https://github.com/lavkeshdwivedi/kogniOS"
+Changelog = "https://github.com/lavkeshdwivedi/kogniOS/blob/main/CHANGELOG.md"
+
+[project.scripts]
+kognios = "kognios.cli:main"
+
+[project.entry-points."kognios.providers"]
+# third-party providers register here
+
+[project.entry-points."kognios.tools"]
+# third-party tools register here
+
+[tool.hatch.build.targets.wheel]
+packages = ["kognios"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-m 'not integration'"
+markers = [
+    "integration: marks tests as requiring real API keys (deselect with '-m not integration')",
+]

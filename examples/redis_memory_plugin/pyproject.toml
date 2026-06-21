@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kognios-redis-memory"
+version = "0.1.0"
+description = "Redis-backed long-term memory plugin for kogniOS"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = ["kognios>=1.0.0", "redis>=5.0"]
+
+[project.entry-points."kognios.memory"]
+redis = "redis_memory:RedisLongTermMemory"
+
+[tool.hatch.build.targets.wheel]
+# redis_memory.py lives at the root of this example package
+sources = ["."]
+include = ["redis_memory.py"]

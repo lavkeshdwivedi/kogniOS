@@ -1,0 +1,20 @@
+# Temp files
+*.b64.txt
+C*Tempreadme*.txt
+*Tempreadme*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+
+# Databases
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
