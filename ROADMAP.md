@@ -6,7 +6,15 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Released
 
-### v1.2.0 (current)
+### v1.3.0 (current)
+- [x] `Agent.max_tool_errors` — circuit breaker; raises after N consecutive `"Error: ..."` results from a tool
+- [x] `Agent.max_context_tokens` — auto-trim oldest turns before each LLM call; prevents context overflow
+- [x] Parallel sync tool calls in `Agent.run()` via `ThreadPoolExecutor` (matches `arun()`)
+- [x] `Team.pipeline()` / `apipeline()` — sequential agent chain
+- [x] `Team.broadcast()` / `abroadcast()` — parallel fan-out to all agents
+- [x] `OpenAIModel.structured_complete()` uses native `response_format=json_object` (Groq inherits it)
+
+### v1.2.0
 - [x] `ModelChain.astream()` — async streaming across provider chain
 - [x] `ModelChain.stream()` deadline enforcement (matches `complete()` robustness)
 - [x] `Agent.tool_timeout` — 30 s default; hung tools cancelled and return an error string
@@ -54,14 +62,6 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Planned
 
-### v1.3 — Reliability
-- [ ] **Context window management**: `max_context_tokens` on `Agent`; auto-trim oldest turns
-  before each LLM call so long sessions never crash on context overflow
-- [ ] **Native JSON mode**: `OpenAIModel.structured_complete()` uses `response_format=json_object`
-  instead of prompt injection (Groq and Gemini inherit it via `OpenAIModel`)
-- [ ] **Tool retry guard**: `max_tool_errors: int = 3` stops infinite retry when a tool
-  keeps returning `"Error: ..."` — currently the LLM can loop forever on broken tools
-
 ### v1.4 — RAG & Memory
 - [ ] **Hybrid search**: FTS5 + vector combined via Reciprocal Rank Fusion — no new dependency
 - [ ] **Memory compaction**: optional LLM-based summarisation of dropped turns instead of
@@ -70,10 +70,6 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
   key-substring LIKE search instead of returning arbitrary first-N rows
 
 ### v1.5 — Multi-agent
-- [ ] **Parallel tool calls in sync `agent.run()`**: `ThreadPoolExecutor` when >1 tool call
-  arrives (async already does this via `asyncio.gather`)
-- [ ] **`Team.pipeline(msg)`**: linear chain — output of agent N is input to agent N+1
-- [ ] **`Team.broadcast(msg)`**: fan-out to all agents, return `dict[name, result]`
 - [ ] **Prompt caching (Anthropic)**: `cache_control: ephemeral` on system messages when
   `cache_system=True` (~90% cost reduction on repeated identical system prompts)
 

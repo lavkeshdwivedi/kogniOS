@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import TypeVar
 
@@ -27,6 +28,8 @@ class Agent:
         output_guardrails: list[Callable] | None = None,
         tracer: Tracer | None = None,
         tool_timeout: float = 30.0,
+        max_context_tokens: int | None = None,
+        max_tool_errors: int = 3,
     ):
         self.model = model
         self.registry = ToolRegistry(tools or [])
@@ -41,6 +44,8 @@ class Agent:
         self.output_guardrails = output_guardrails or []
         self.tracer = tracer
         self.tool_timeout = tool_timeout
+        self.max_context_tokens = max_context_tokens
+        self.max_tool_errors = max_tool_errors
 
     # ── Guardrail helpers ────────────────────────────────────────────────────
 
@@ -54,6 +59,37 @@ class Agent:
             text = guard(text)
         return text
 
+    # ── Context trimming ─────────────────────────────────────────────────────
+
+    def _trim_messages(self, messages: list[dict]) -> list[dict]:
+        if self.max_context_tokens is None:
+            return messages
+        # ~4 chars per token; always keep the last message (current user turn)
+        while len(messages) > 1:
+            est = sum(len(str(m.get("content", ""))) for m in messages) // 4
+            if est <= self.max_context_tokens:
+                break
+            messages = messages[1:]
+        return messages
+
+    # ── Tool call helpers ────────────────────────────────────────────────────
+
+    def _call_tool_sync(self, tc: dict) -> str:
+        if self.tracer:
+            with self.tracer.span("tool.call", tool=tc["name"]):
+                return self.registry.call(
+                    tc["name"], tc.get("input", {}), timeout=self.tool_timeout
+                )
+        return self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+
+    def _check_tool_errors(self, tc: dict, result: str, counts: dict[str, int]) -> None:
+        if isinstance(result, str) and result.startswith("Error:"):
+            counts[tc["name"]] = counts.get(tc["name"], 0) + 1
+            if counts[tc["name"]] >= self.max_tool_errors:
+                raise RuntimeError(
+                    f"Tool '{tc['name']}' failed {self.max_tool_errors} times. Last error: {result}"
+                )
+
     # ── Sync ────────────────────────────────────────────────────────────────
 
     def run(self, message: str, output_type: type[T] | None = None) -> str | T:
@@ -62,8 +98,10 @@ class Agent:
         message = self._apply_input_guardrails(message)
         messages = self._build_messages(message)
         tools = self.registry.schemas() if self.registry else None
+        _tool_error_counts: dict[str, int] = {}
 
         for _ in range(self.max_iterations):
+            messages = self._trim_messages(messages)
             if self.tracer:
                 with self.tracer.span(
                     "llm.complete", model=getattr(self.model, "model", "unknown")
@@ -79,16 +117,13 @@ class Agent:
 
             if response.tool_calls:
                 messages.append({"role": "assistant", "content": self._encode_tool_calls(response)})
-                for tc in response.tool_calls:
-                    if self.tracer:
-                        with self.tracer.span("tool.call", tool=tc["name"]):
-                            result = self.registry.call(
-                                tc["name"], tc.get("input", {}), timeout=self.tool_timeout
-                            )
-                    else:
-                        result = self.registry.call(
-                            tc["name"], tc.get("input", {}), timeout=self.tool_timeout
-                        )
+                if len(response.tool_calls) > 1:
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        results = list(pool.map(self._call_tool_sync, response.tool_calls))
+                else:
+                    results = [self._call_tool_sync(tc) for tc in response.tool_calls]
+                for tc, result in zip(response.tool_calls, results):
+                    self._check_tool_errors(tc, result, _tool_error_counts)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
@@ -123,10 +158,12 @@ class Agent:
         messages = self._build_messages(message)
         tools = self.registry.schemas() if self.registry else None
         accumulated_text = ""
+        _tool_error_counts: dict[str, int] = {}
 
         for _ in range(self.max_iterations):
             accumulated_text = ""
             tool_calls: list[dict] = []
+            messages = self._trim_messages(messages)
 
             for chunk in self.model.stream(messages, tools=tools, system=system):
                 if chunk.text:
@@ -143,9 +180,8 @@ class Agent:
                     }
                 )
                 for tc in tool_calls:
-                    result = self.registry.call(
-                        tc["name"], tc.get("input", {}), timeout=self.tool_timeout
-                    )
+                    result = self._call_tool_sync(tc)
+                    self._check_tool_errors(tc, result, _tool_error_counts)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
@@ -166,8 +202,10 @@ class Agent:
         message = self._apply_input_guardrails(message)
         messages = self._build_messages(message)
         tools = self.registry.schemas() if self.registry else None
+        _tool_error_counts: dict[str, int] = {}
 
         for _ in range(self.max_iterations):
+            messages = self._trim_messages(messages)
             if self.tracer:
                 with self.tracer.span(
                     "llm.complete", model=getattr(self.model, "model", "unknown")
@@ -202,6 +240,7 @@ class Agent:
                         ]
                     )
                 for tc, result in zip(response.tool_calls, results):
+                    self._check_tool_errors(tc, result, _tool_error_counts)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
@@ -235,10 +274,12 @@ class Agent:
         message = self._apply_input_guardrails(message)
         messages = self._build_messages(message)
         tools = self.registry.schemas() if self.registry else None
+        _tool_error_counts: dict[str, int] = {}
 
         for _ in range(self.max_iterations):
             accumulated_text = ""
             tool_calls: list[dict] = []
+            messages = self._trim_messages(messages)
 
             async for chunk in self.model.astream(messages, tools=tools, system=system):
                 if chunk.text:
@@ -263,6 +304,7 @@ class Agent:
                     ]
                 )
                 for tc, result in zip(tool_calls, results):
+                    self._check_tool_errors(tc, result, _tool_error_counts)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 

@@ -9,6 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.0] - 2026-07-12
+
+### Added
+- **`Agent.max_tool_errors`**: new `max_tool_errors: int = 3` constructor param; raises
+  `RuntimeError` when any single tool returns an `"Error: ..."` string that many times,
+  preventing the LLM from looping forever on a broken tool. Applied to all 4 entry points
+  (`run`, `arun`, `stream`, `astream`).
+- **`Agent.max_context_tokens`**: new `max_context_tokens: int | None = None` constructor
+  param; trims the oldest conversation turns before each LLM call using a ~4-chars/token
+  heuristic so long sessions never crash on context overflow.
+- **Parallel sync tool calls in `Agent.run()`**: when the LLM returns more than one tool call
+  in a single turn, `run()` now executes them concurrently via `ThreadPoolExecutor` (matches
+  the `asyncio.gather` behaviour already in `arun()`).
+- **`Team.pipeline()` / `Team.apipeline()`**: sequential multi-agent chain where the output
+  of each agent becomes the input to the next.
+- **`Team.broadcast()` / `Team.abroadcast()`**: fan-out to all agents in parallel, returning
+  `dict[name, result]`; sync version uses `ThreadPoolExecutor`, async uses `asyncio.gather`.
+
+### Changed
+- **`OpenAIModel.structured_complete()`**: now uses `response_format={"type": "json_object"}`
+  instead of prompt injection, producing valid JSON without extra prose. `GroqModel` inherits
+  this automatically (both use the OpenAI-compatible API).
+
+---
+
 ## [1.2.0] - 2026-07-12
 
 ### Added

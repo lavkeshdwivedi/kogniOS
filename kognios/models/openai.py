@@ -122,6 +122,17 @@ class OpenAIModel(BaseModel):
             params["tools"] = tools
         return params
 
+    def structured_complete(
+        self,
+        messages: list[dict],
+        schema: dict | None = None,
+        system: str = "",
+    ) -> dict:
+        params = self._base_params(messages, None, system)
+        params["response_format"] = {"type": "json_object"}
+        response = self._client.chat.completions.create(**params)
+        return json.loads(response.choices[0].message.content or "{}")
+
     def _parse_response(self, response) -> ModelResponse:
         msg = response.choices[0].message
         tool_calls = []

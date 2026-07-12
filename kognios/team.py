@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import json
 import re
 
@@ -36,6 +38,31 @@ class Team:
         name, forwarded = self._parse_routing(response.content, message)
         agent = self.agents.get(name, next(iter(self.agents.values())))
         return agent.run(forwarded)
+
+    def pipeline(self, message: str) -> str:
+        """Sequential chain: output of each agent becomes input to the next."""
+        result = message
+        for agent in self.agents.values():
+            result = agent.run(result)
+        return result
+
+    async def apipeline(self, message: str) -> str:
+        """Async sequential chain."""
+        result = message
+        for agent in self.agents.values():
+            result = await agent.arun(result)
+        return result
+
+    def broadcast(self, message: str) -> dict[str, str]:
+        """Fan-out to all agents in parallel, return {name: result}."""
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            futures = {name: pool.submit(agent.run, message) for name, agent in self.agents.items()}
+            return {name: f.result() for name, f in futures.items()}
+
+    async def abroadcast(self, message: str) -> dict[str, str]:
+        """Async fan-out to all agents in parallel, return {name: result}."""
+        results = await asyncio.gather(*[agent.arun(message) for agent in self.agents.values()])
+        return dict(zip(self.agents.keys(), results))
 
     def _parse_routing(self, text: str, fallback_message: str) -> tuple[str, str]:
         try:

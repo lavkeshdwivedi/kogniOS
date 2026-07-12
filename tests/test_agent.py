@@ -86,3 +86,95 @@ def test_knowledge_injected_into_system():
     kb.search.assert_called_once_with("tell me about Python")
     _, kwargs = model.complete.call_args
     assert "Relevant chunk about Python." in kwargs.get("system", "")
+
+
+def test_max_tool_errors_raises():
+    @tool
+    def broken() -> str:
+        """Always fails."""
+        return "Error: something went wrong"
+
+    model = MagicMock()
+    model.complete.return_value = ModelResponse(
+        content="", tool_calls=[{"id": "1", "name": "broken", "input": {}}]
+    )
+    agent = Agent(model=model, tools=[broken], max_tool_errors=2)
+    with pytest.raises(RuntimeError, match="failed 2 times"):
+        agent.run("do something")
+
+
+def test_max_tool_errors_default_allows_some_errors():
+    call_count = {"n": 0}
+
+    @tool
+    def flaky() -> str:
+        """Fails twice then succeeds."""
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            return "Error: not ready"
+        return "ok"
+
+    model = MagicMock()
+    model.complete.side_effect = [
+        ModelResponse(content="", tool_calls=[{"id": "1", "name": "flaky", "input": {}}]),
+        ModelResponse(content="", tool_calls=[{"id": "2", "name": "flaky", "input": {}}]),
+        ModelResponse(content="", tool_calls=[{"id": "3", "name": "flaky", "input": {}}]),
+        ModelResponse(content="done", tool_calls=[]),
+    ]
+    agent = Agent(model=model, tools=[flaky], max_tool_errors=3)
+    result = agent.run("go")
+    assert result == "done"
+
+
+def test_max_context_tokens_trims_messages():
+    agent = Agent(model=MagicMock(), max_context_tokens=50)
+    # 10 messages × 100 chars = 1000 chars ≈ 250 tokens; limit is 50 tokens
+    messages = [{"role": "user", "content": "x" * 100}] * 10
+    trimmed = agent._trim_messages(list(messages))
+    assert len(trimmed) < len(messages)
+
+
+def test_max_context_tokens_none_keeps_all():
+    agent = Agent(model=MagicMock(), max_context_tokens=None)
+    messages = [{"role": "user", "content": "x" * 500}] * 5
+    trimmed = agent._trim_messages(list(messages))
+    assert len(trimmed) == 5
+
+
+def test_max_context_tokens_preserves_last_message():
+    agent = Agent(model=MagicMock(), max_context_tokens=1)
+    messages = [{"role": "user", "content": "a" * 1000}, {"role": "user", "content": "last"}]
+    trimmed = agent._trim_messages(list(messages))
+    assert trimmed[-1]["content"] == "last"
+
+
+def test_parallel_sync_tool_calls_both_executed():
+    call_log = []
+
+    @tool
+    def tool_a() -> str:
+        """Tool A."""
+        call_log.append("a")
+        return "result_a"
+
+    @tool
+    def tool_b() -> str:
+        """Tool B."""
+        call_log.append("b")
+        return "result_b"
+
+    model = MagicMock()
+    model.complete.side_effect = [
+        ModelResponse(
+            content="",
+            tool_calls=[
+                {"id": "1", "name": "tool_a", "input": {}},
+                {"id": "2", "name": "tool_b", "input": {}},
+            ],
+        ),
+        ModelResponse(content="done", tool_calls=[]),
+    ]
+    agent = Agent(model=model, tools=[tool_a, tool_b])
+    result = agent.run("run both")
+    assert result == "done"
+    assert set(call_log) == {"a", "b"}
