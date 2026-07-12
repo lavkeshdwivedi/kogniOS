@@ -26,6 +26,7 @@ class Agent:
         input_guardrails: list[Callable] | None = None,
         output_guardrails: list[Callable] | None = None,
         tracer: Tracer | None = None,
+        tool_timeout: float = 30.0,
     ):
         self.model = model
         self.registry = ToolRegistry(tools or [])
@@ -39,6 +40,7 @@ class Agent:
         self.input_guardrails = input_guardrails or []
         self.output_guardrails = output_guardrails or []
         self.tracer = tracer
+        self.tool_timeout = tool_timeout
 
     # ── Guardrail helpers ────────────────────────────────────────────────────
 
@@ -80,9 +82,9 @@ class Agent:
                 for tc in response.tool_calls:
                     if self.tracer:
                         with self.tracer.span("tool.call", tool=tc["name"]):
-                            result = self.registry.call(tc["name"], tc.get("input", {}))
+                            result = self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
                     else:
-                        result = self.registry.call(tc["name"], tc.get("input", {}))
+                        result = self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
@@ -137,7 +139,7 @@ class Agent:
                     }
                 )
                 for tc in tool_calls:
-                    result = self.registry.call(tc["name"], tc.get("input", {}))
+                    result = self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
@@ -180,12 +182,12 @@ class Agent:
                     for tc in response.tool_calls:
                         with self.tracer.span("tool.call", tool=tc["name"]):
                             results.append(
-                                await self.registry.acall(tc["name"], tc.get("input", {}))
+                                await self.registry.acall(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
                             )
                 else:
                     results = await asyncio.gather(
                         *[
-                            self.registry.acall(tc["name"], tc.get("input", {}))
+                            self.registry.acall(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
                             for tc in response.tool_calls
                         ]
                     )
@@ -243,7 +245,7 @@ class Agent:
                     }
                 )
                 results = await asyncio.gather(
-                    *[self.registry.acall(tc["name"], tc.get("input", {})) for tc in tool_calls]
+                    *[self.registry.acall(tc["name"], tc.get("input", {}), timeout=self.tool_timeout) for tc in tool_calls]
                 )
                 for tc, result in zip(tool_calls, results):
                     messages.append(self._tool_result_message(tc, result))

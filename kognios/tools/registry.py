@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import inspect
 from collections.abc import Callable
 from typing import Any, get_type_hints
@@ -85,19 +86,26 @@ class ToolRegistry:
     def schemas(self) -> list[dict]:
         return [fn._tool_schema for fn in self._tools.values()]
 
-    def call(self, name: str, arguments: dict) -> str:
+    def call(self, name: str, arguments: dict, timeout: float | None = None) -> str:
         fn = self._tools.get(name)
         if fn is None:
             return f"Error: unknown tool '{name}'"
         try:
-            result = fn(**arguments)
+            if timeout is not None:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(fn, **arguments)
+                    result = future.result(timeout=timeout)
+            else:
+                result = fn(**arguments)
             if asyncio.iscoroutine(result):
                 raise TypeError(f"Tool '{name}' is async. Use agent.arun() or registry.acall().")
             return str(result)
+        except concurrent.futures.TimeoutError:
+            return f"Error: tool '{name}' timed out after {timeout}s"
         except Exception as exc:
             return f"Error: {exc}"
 
-    async def acall(self, name: str, arguments: dict) -> str:
+    async def acall(self, name: str, arguments: dict, timeout: float | None = None) -> str:
         """Async-aware tool call — awaits coroutine tools (e.g. MCP tools)."""
         fn = self._tools.get(name)
         if fn is None:
@@ -105,8 +113,19 @@ class ToolRegistry:
         try:
             result = fn(**arguments)
             if asyncio.iscoroutine(result):
-                result = await result
+                coro = result
+                if timeout is not None:
+                    result = await asyncio.wait_for(coro, timeout=timeout)
+                else:
+                    result = await coro
+            elif timeout is not None:
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    fut = loop.run_in_executor(executor, lambda: fn(**arguments))
+                    result = await asyncio.wait_for(fut, timeout=timeout)
             return str(result)
+        except asyncio.TimeoutError:
+            return f"Error: tool '{name}' timed out after {timeout}s"
         except Exception as exc:
             return f"Error: {exc}"
 

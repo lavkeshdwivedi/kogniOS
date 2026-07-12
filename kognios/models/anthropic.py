@@ -8,7 +8,7 @@ from .base import BaseModel, ModelChunk, ModelResponse
 
 
 class AnthropicModel(BaseModel):
-    def __init__(self, model: str = "claude-sonnet-5", api_key: str | None = None, **kwargs):
+    def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None, **kwargs):
         self.model = model
         self.kwargs = kwargs
         self._client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()

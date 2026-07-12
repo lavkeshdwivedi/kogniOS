@@ -4,7 +4,7 @@ import os
 import random
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
 from .base import BaseModel, ModelChunk, ModelResponse
 
@@ -33,6 +33,12 @@ _TOGETHER_MODELS = [
     "Qwen/Qwen2.5-72B-Instruct-Turbo",
     "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     "meta-llama/Llama-3.1-8B-Instruct-Turbo",
+]
+
+_XAI_MODELS = [
+    "grok-4",
+    "grok-3",
+    "grok-3-mini",
 ]
 
 _ANTHROPIC_MODELS = [
@@ -71,9 +77,7 @@ def _collect_keys(base_env: str, max_keys: int = 10) -> list[str]:
         seen.add(primary)
     for i in range(2, max_keys + 1):
         val = (os.environ.get(f"{base_env}_{i}") or "").strip()
-        if not val:
-            break
-        if val not in seen:
+        if val and val not in seen:
             out.append(val)
             seen.add(val)
     return out
@@ -224,17 +228,56 @@ class ModelChain(BaseModel):
         tools: list[dict] | None = None,
         system: str = "",
     ) -> Iterator[ModelChunk]:
+        deadline = self._deadline()
         last_err: Exception | None = None
         for model in self.models:
             mid = id(model)
             if mid in self._dead:
                 continue
+            if time.time() > deadline:
+                break
             wait = self._cooldown_until.get(mid, 0.0) - time.time()
             if wait > 0:
+                if time.time() + wait > deadline:
+                    continue
                 time.sleep(wait)
             self._pace()
             try:
                 yield from model.stream(messages, tools=tools, system=system)
+                return
+            except Exception as exc:
+                last_err = exc
+                if self._is_dead_error(exc):
+                    self._dead.add(mid)
+                elif self._is_rate_limit(exc):
+                    self._cooldown_until[mid] = time.time() + self._parse_retry_after(exc)
+
+        raise RuntimeError(f"All models in chain exhausted. Last error: {last_err}")
+
+    async def astream(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        system: str = "",
+    ) -> AsyncIterator[ModelChunk]:
+        import asyncio
+
+        deadline = self._deadline()
+        last_err: Exception | None = None
+        for model in self.models:
+            mid = id(model)
+            if mid in self._dead:
+                continue
+            if time.time() > deadline:
+                break
+            wait = self._cooldown_until.get(mid, 0.0) - time.time()
+            if wait > 0:
+                if time.time() + wait > deadline:
+                    continue
+                await asyncio.sleep(wait)
+            try:
+                async for chunk in model.astream(messages, tools=tools, system=system):
+                    yield chunk
                 return
             except Exception as exc:
                 last_err = exc
@@ -290,17 +333,18 @@ def free_tier_chain(
     groq_models: list[str] | None = None,
     gemini_models: list[str] | None = None,
     together_models: list[str] | None = None,
+    xai_models: list[str] | None = None,
     anthropic_models: list[str] | None = None,
     **model_kwargs,
 ) -> ModelChain:
     """Build a ModelChain with free-tier providers first, paid providers last.
 
     Reads GROQ_API_KEY, GROQ_API_KEY_2, ..., GROQ_API_KEY_N from env and
-    similarly for GEMINI, TOGETHER, ANTHROPIC. Creates one model instance
+    similarly for GEMINI, TOGETHER, XAI, ANTHROPIC. Creates one model instance
     per (key, model_name) pair so each has its own cooldown bucket: a 429
     on key1/model-A does not block key2/model-A.
 
-    Default provider order: Groq -> Gemini -> Together -> Anthropic.
+    Default provider order: Groq -> Gemini -> Together -> xAI -> Anthropic.
     Pass preferred="gemini" to promote that provider to the front.
 
     Extra keyword arguments (e.g. max_tokens=400, temperature=0.25) are
@@ -309,14 +353,16 @@ def free_tier_chain(
     from .groq import GroqModel
     from .gemini import GeminiModel
     from .together import TogetherModel
+    from .xai import XAIModel
     from .anthropic import AnthropicModel
 
     groq_pool = groq_models or _GROQ_MODELS
     gemini_pool = gemini_models or _GEMINI_MODELS
     together_pool = together_models or _TOGETHER_MODELS
+    xai_pool = xai_models or _XAI_MODELS
     anthropic_pool = anthropic_models or _ANTHROPIC_MODELS
 
-    provider_order = ["groq", "gemini", "together", "anthropic"]
+    provider_order = ["groq", "gemini", "together", "xai", "anthropic"]
     if preferred and preferred in provider_order:
         provider_order = [preferred] + [p for p in provider_order if p != preferred]
 
@@ -334,6 +380,10 @@ def free_tier_chain(
             for key in _collect_keys("TOGETHER_API_KEY"):
                 for name in together_pool:
                     models.append(TogetherModel(model=name, api_key=key, **model_kwargs))
+        elif provider == "xai":
+            for key in _collect_keys("XAI_API_KEY"):
+                for name in xai_pool:
+                    models.append(XAIModel(model=name, api_key=key, **model_kwargs))
         elif provider == "anthropic":
             for key in _collect_keys("ANTHROPIC_API_KEY"):
                 for name in anthropic_pool:
