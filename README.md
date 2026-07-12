@@ -142,6 +142,13 @@ print(agent.run("What is (3 + 4) × 6?"))
 The ReAct loop runs **think → call tool → observe → repeat** until the model stops
 calling tools, with a configurable `max_iterations` guard (default 10).
 
+Tool calls time out after 30 seconds by default. Adjust per agent:
+
+```python
+agent = Agent(model=..., tools=[...], tool_timeout=10.0)  # stricter
+agent = Agent(model=..., tools=[...], tool_timeout=None)  # no limit
+```
+
 ---
 
 ### 2 · Memory
@@ -324,19 +331,52 @@ from kognios.models.mistral   import MistralModel
 from kognios.models.cohere    import CohereModel
 from kognios.models.bedrock   import BedrockModel
 from kognios.models.xai       import XAIModel
+from kognios.models.together  import TogetherModel
 
-model = AnthropicModel(model="claude-sonnet-5")
+model = AnthropicModel(model="claude-sonnet-4-6")
 model = OpenAIModel(model="gpt-4o")
-model = GroqModel(model="llama-4-scout")                    # GROQ_API_KEY
-model = GeminiModel(model="gemini-2.5-flash")                          # GEMINI_API_KEY
-model = OllamaModel(model="llama3.3")                                  # needs Ollama running locally
-model = MistralModel(model="mistral-large-latest")                     # MISTRAL_API_KEY
-model = CohereModel(model="command-a-plus-05-2026")                    # COHERE_API_KEY
-model = BedrockModel(model="anthropic.claude-3-7-sonnet-20250219-v1:0")  # AWS_* env vars
-model = XAIModel(model="grok-4")                                  # XAI_API_KEY
+model = GroqModel(model="openai/gpt-oss-120b")                          # GROQ_API_KEY
+model = GeminiModel(model="gemini-2.5-flash")                           # GEMINI_API_KEY
+model = OllamaModel(model="llama3.3")                                   # needs Ollama running locally
+model = MistralModel(model="mistral-large-latest")                      # MISTRAL_API_KEY
+model = CohereModel(model="command-a-plus-05-2026")                     # COHERE_API_KEY
+model = BedrockModel(model="anthropic.claude-3-7-sonnet-20250219-v1:0") # AWS_* env vars
+model = XAIModel(model="grok-4")                                        # XAI_API_KEY
+model = TogetherModel(model="deepseek-ai/DeepSeek-V3")                  # TOGETHER_API_KEY
 ```
 
 All providers share the same `BaseModel` interface; one line to swap.
+
+---
+
+## ModelChain — multi-provider failover
+
+Chain providers so a 429 on Groq auto-falls over to Gemini, Together, xAI, or Anthropic:
+
+```python
+from kognios import Agent, free_tier_chain
+
+# Reads GROQ_API_KEY[_N], GEMINI_API_KEY[_N], TOGETHER_API_KEY[_N],
+# XAI_API_KEY[_N], ANTHROPIC_API_KEY[_N] from environment.
+# One model instance per (key, model) pair — independent cooldown buckets.
+chain = free_tier_chain(preferred="groq")
+agent = Agent(model=chain, tools=[...])
+```
+
+Or build an explicit chain:
+
+```python
+from kognios import ModelChain, GroqModel, GeminiModel, AnthropicModel
+
+chain = ModelChain([
+    GroqModel(model="openai/gpt-oss-120b"),
+    GeminiModel(model="gemini-2.5-flash"),
+    AnthropicModel(),
+])
+```
+
+Features: 429-aware exponential backoff, per-model cooldown, dead-model tracking,
+`<think>` block stripping, overall deadline, full streaming and async support.
 
 ---
 
@@ -543,21 +583,35 @@ kognios/
 ├── agent.py              # Agent class + ReAct loop
 ├── team.py               # Team router
 ├── cli.py                # Click CLI
+├── plugins.py            # Entry-point plugin discovery
+├── tracing.py            # Tracer + span sinks
 ├── models/
 │   ├── base.py           # BaseModel ABC, ModelResponse, ModelChunk
-│   ├── anthropic.py      # Anthropic provider
-│   ├── openai.py         # OpenAI provider
-│   ├── groq.py           # Groq (OpenAI-compatible)
-│   └── gemini.py         # Gemini (OpenAI-compatible)
+│   ├── chain.py          # ModelChain + free_tier_chain factory
+│   ├── anthropic.py
+│   ├── openai.py
+│   ├── groq.py
+│   ├── gemini.py
+│   ├── ollama.py
+│   ├── mistral.py
+│   ├── cohere.py
+│   ├── bedrock.py
+│   ├── xai.py
+│   └── together.py
 ├── tools/
-│   ├── registry.py       # @tool decorator + ToolRegistry
-│   └── builtins/         # calculator, python_eval, read_file, …
+│   ├── registry.py       # @tool decorator + ToolRegistry (with timeout)
+│   └── builtins/         # calculator, python_eval, read_file, write_file,
+│                         # http_get, web_search, code_interpreter, browse
 ├── memory/
-│   ├── short_term.py     # in-RAM sliding window
-│   └── long_term.py      # SQLite key/value
+│   ├── short_term.py     # sliding-window RAM buffer
+│   └── long_term.py      # SQLite key/value + semantic recall
 ├── knowledge/
-│   ├── base.py           # KnowledgeBase ABC
-│   └── sqlite_fts.py     # FTS5 RAG implementation
+│   ├── sqlite_fts.py     # FTS5 / BM25 knowledge base
+│   ├── numpy_vector.py   # cosine-similarity vector knowledge
+│   └── loaders.py        # file/URL/PDF/CSV/JSON/DOCX/GitHub loaders
+├── eval/                 # AgentEvaluator, EvalCase, EvalReport, scorers
+├── guardrails/           # block_keywords, max_length, pii_scrubber
+├── mcp/                  # MCPClient (stdio + SSE)
 └── storage/
     └── sqlite.py         # shared connection + migrations
 ```

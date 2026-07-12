@@ -9,6 +9,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] - 2026-07-12
+
+### Added
+- **`ModelChain.astream()`**: async streaming now works with multi-model chains; previously
+  raised `NotImplementedError` and broke all `agent.astream()` calls using `ModelChain`.
+- **xAI / Grok in `free_tier_chain()`**: `XAI_API_KEY` is now picked up automatically;
+  adds `grok-4`, `grok-3`, `grok-3-mini` to the provider pool (before Anthropic).
+- **`Agent.tool_timeout`**: new `tool_timeout: float = 30.0` constructor param; all tool
+  calls (sync and async) are automatically cancelled after the deadline and return an error
+  string so the agent can recover rather than hanging indefinitely.
+- **Key-gap scanning in `_collect_keys`**: `PROVIDER_API_KEY`, `PROVIDER_API_KEY_3`
+  (without `_2`) are now both picked up; previously scanning stopped at the first missing slot.
+
+### Fixed
+- `AnthropicModel` default model corrected: `claude-sonnet-5` (non-existent) → `claude-sonnet-4-6`.
+- `XAIModel` now accepts an explicit `api_key=` argument (needed by `free_tier_chain`).
+- `_GROQ_MODELS` purged of retired models (`meta-llama/llama-4-scout-17b-16e-instruct` and
+  `qwen/qwen3-32b`, both retired July 17 2026). `GroqModel` default updated to
+  `openai/gpt-oss-120b`.
+
+### Changed
+- `ModelChain.stream()` now respects `overall_timeout` and skips models whose cooldown would
+  exceed the remaining deadline (matches the robustness already in `complete()`).
+- `free_tier_chain()` default provider order: Groq → Gemini → Together → **xAI** → Anthropic.
+
+---
+
 ## [1.1.4] - 2026-07-08
 
 ### Fixed

@@ -13,12 +13,11 @@ from .base import BaseModel, ModelChunk, ModelResponse
 # Order within each pool: best quality / most quota first, fastest fallback last.
 
 _GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama-3.1-8b-instant",
-    "qwen/qwen3-32b",
-    "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
 ]
 
 _GEMINI_MODELS = [
