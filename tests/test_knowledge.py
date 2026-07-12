@@ -41,8 +41,6 @@ def test_fts5_available(kb):
 
 # --- HybridKnowledge tests ---
 
-import pytest
-
 
 def _stub_embed(texts: list[str]) -> list[list[float]]:
     """Simple bag-of-chars embedding (dim=64) — no API key required."""
