@@ -6,7 +6,17 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Released
 
-### v1.3.0 (current)
+### v1.4.0 (current)
+- [x] `HybridKnowledge(fts_kb, vector_kb, k=60)` — FTS5 + vector via Reciprocal Rank Fusion
+- [x] `kognios ingest --backend hybrid` — single-command hybrid ingestion
+- [x] `ShortTermMemory.compaction_model` — LLM-based summarisation of dropped turns
+- [x] `ShortTermMemory.acompact()` — async compaction variant
+- [x] `LongTermMemory.remember()` / `.forget()` — ergonomic aliases for `store()` / `delete()`
+- [x] `LongTermMemory.semantic_recall()` fallback: LIKE search on key instead of arbitrary first-N rows
+- [x] `AzureOpenAIModel` — Azure OpenAI provider (`openai.AzureOpenAI`), optional `api_key`
+- [x] `VertexAIModel` — Google Vertex AI (Gemini) via `google-cloud-aiplatform`; `[vertexai]` extra
+
+### v1.3.0
 - [x] `Agent.max_tool_errors` — circuit breaker; raises after N consecutive `"Error: ..."` results from a tool
 - [x] `Agent.max_context_tokens` — auto-trim oldest turns before each LLM call; prevents context overflow
 - [x] Parallel sync tool calls in `Agent.run()` via `ThreadPoolExecutor` (matches `arun()`)
@@ -62,21 +72,66 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Planned
 
-### v1.4 — RAG & Memory
-- [ ] **Hybrid search**: FTS5 + vector combined via Reciprocal Rank Fusion — no new dependency
-- [ ] **Memory compaction**: optional LLM-based summarisation of dropped turns instead of
-  silent deletion (`compaction_model` param on `ShortTermMemory`)
-- [ ] **Semantic recall fallback fix**: `LongTermMemory.semantic_recall()` falls back to
-  key-substring LIKE search instead of returning arbitrary first-N rows
+### v1.5 — Performance & Developer Experience
 
-### v1.5 — Multi-agent
-- [ ] **Prompt caching (Anthropic)**: `cache_control: ephemeral` on system messages when
-  `cache_system=True` (~90% cost reduction on repeated identical system prompts)
+#### Prompt Caching & Cost Reduction
+- [ ] **Anthropic prompt caching (`cache_system=True`)**: when `AnthropicModel` is
+  constructed with `cache_system=True`, wrap the system prompt block with
+  `cache_control: {"type": "ephemeral"}` — ~90% cost reduction and ~85% latency
+  reduction on repeated identical system prompts
+- [ ] **Cache hit reporting in `agent.last_usage`**: surface `cache_read_input_tokens`
+  and `cache_creation_input_tokens` from the Anthropic response
+- [ ] **Tool result caching (`cache_tool_results=True` on `Agent`)**: deduplicate
+  identical `(tool_name, frozen_args)` calls within a single `run()` / `arun()` turn —
+  avoids redundant I/O for deterministic tools like `read_file` or `http_get`
 
-### v2.0 — Production
+#### Reliability
+- [ ] **Tool retry (`tool_max_retries` on `Agent`)**: when a tool returns `"Error: ..."`
+  retry up to N times with exponential backoff before incrementing the `max_tool_errors`
+  counter — reduces false positives from transient network errors
+- [ ] **Typed streaming events (`StreamEvent`)**: discriminated union
+  `StreamEvent(kind: Literal["text","tool_start","tool_end","done"], ...)` via a new
+  `agent.stream_events(message)` method; `agent.stream()` remains unchanged
+
+#### Structured Output
+- [ ] **Native structured output for Gemini**: `GeminiModel.structured_complete()` via
+  the `response_schema` parameter (Gemini 2.x JSON Schema support)
+- [ ] **Native structured output for Mistral**: `MistralModel.structured_complete()` via
+  `response_format={"type": "json_object"}`
+- [ ] **`ModelChain.structured_complete()`**: delegates to chain members in turn until
+  one returns valid JSON; currently missing
+
+#### CLI Enhancements
+- [ ] **`--save-session` / `--load-session` flags on `kognios chat`**: persist
+  `ShortTermMemory` to JSON between sessions using existing `.save()` / `.load()` methods
+- [ ] **`/tools` slash command in chat REPL**: lists registered tool names; `/tool <name>`
+  calls a tool directly for debugging
+- [ ] **`--tools` flag on `kognios chat`**: comma-separated built-in tool names
+  (`calculator,web_search,read_file`) attached at startup without writing code
+- [ ] **`--max-context-tokens` flag on `kognios chat`**: expose `Agent.max_context_tokens`
+  from the CLI
+
+#### Web Search
+- [ ] **Configurable search backend**: `KOGNIOS_SEARCH_BACKEND=ddg|serper|brave`; Serper
+  and Brave unlock higher rate limits and richer snippets via `SERPER_API_KEY` /
+  `BRAVE_SEARCH_API_KEY`
+- [ ] **`web_search(query, max_chars=500)`**: snippet length control so agents can
+  request briefer or fuller snippets depending on context budget
+
+### v2.0 — Production Hardening
 - [ ] **Agent checkpointing**: `save_agent(agent, path)` / `load_agent(path, model)` —
-  serialise messages + memory to JSON for resume-after-crash or human-in-the-loop
-- [ ] **OpenTelemetry sink**: `OTelTracer` class in `kognios/tracing.py`, optional dep
+  serialise messages + `ShortTermMemory` to JSON for resume-after-crash or
+  human-in-the-loop workflows; `LongTermMemory` and `NumpyVectorKnowledge` already
+  persist to disk and are excluded from the snapshot
+- [ ] **OpenTelemetry sink (`OtelTracer`)**: new class in `kognios/tracing.py` that
+  translates `Span` objects to OTLP spans via `opentelemetry-sdk`; optional `[otel]`
+  extra; configure endpoint via `OTEL_EXPORTER_OTLP_ENDPOINT`
+- [ ] **`kognios serve` authentication middleware**: `--api-key` flag generates a
+  bearer-token check on all endpoints; also accepts `KOGNIOS_SERVE_API_KEY` env var
+- [ ] **`POST /team` endpoint on `kognios serve`**: accepts `{message, agents: [...]}`
+  and invokes `Team.run()` server-side — useful for demos without writing Python
+- [ ] **`AsyncLongTermMemory`**: `aiosqlite`-backed variant so `Agent.arun()` never
+  blocks the event loop on fact storage or retrieval; optional `[async-db]` extra
 
 ---
 
@@ -85,6 +140,8 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 - LangChain / LlamaIndex compatibility shims — the whole point is to stay lean
 - GUI / visual workflow builder
 - Proprietary cloud hosting — kognios is a library, not a service
+- Bundled vector database servers (Pinecone, Weaviate, Qdrant) — use the plugin system;
+  `NumpyVectorKnowledge` is the reference implementation for local vector search
 
 ---
 

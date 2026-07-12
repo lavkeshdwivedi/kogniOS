@@ -146,8 +146,8 @@ def ask(file: str, question: str, provider: str, model: str | None):
 @click.option(
     "--backend",
     default="fts",
-    type=click.Choice(["fts", "vector"]),
-    help="Storage backend: fts (BM25) or vector (cosine similarity).",
+    type=click.Choice(["fts", "vector", "hybrid"]),
+    help="Storage backend: fts (BM25), vector (cosine similarity), or hybrid (RRF fusion).",
 )
 def ingest(file: str, db: str, backend: str):
     """Ingest a document into a knowledge base.
@@ -158,12 +158,18 @@ def ingest(file: str, db: str, backend: str):
 
         kognios ingest report.pdf --db my_kb.db
 
-        kognios ingest https://example.com --db my_kb.db --backend fts
+        kognios ingest https://example.com --db my_kb.db --backend hybrid
     """
     if backend == "fts":
         from .knowledge.sqlite_fts import SQLiteKnowledge
 
         kb = SQLiteKnowledge(db_path=db)
+    elif backend == "hybrid":
+        from .knowledge.sqlite_fts import SQLiteKnowledge
+        from .knowledge.numpy_vector import NumpyVectorKnowledge
+        from .knowledge.hybrid import HybridKnowledge
+
+        kb = HybridKnowledge(SQLiteKnowledge(db_path=db), NumpyVectorKnowledge())
     else:
         from .knowledge.numpy_vector import NumpyVectorKnowledge
 

@@ -12,6 +12,7 @@ from .memory.short_term import ShortTermMemory
 from .memory.long_term import LongTermMemory
 from .knowledge.sqlite_fts import SQLiteKnowledge
 from .knowledge.numpy_vector import NumpyVectorKnowledge
+from .knowledge.hybrid import HybridKnowledge
 from .models.anthropic import AnthropicModel
 from .models.openai import OpenAIModel
 from .models.groq import GroqModel
@@ -23,6 +24,8 @@ from .models.bedrock import BedrockModel
 from .models.xai import XAIModel
 from .models.chain import ModelChain, free_tier_chain
 from .models.together import TogetherModel
+from .models.azure import AzureOpenAIModel
+from .models.vertex import VertexAIModel
 from .mcp import MCPClient
 from .eval import AgentEvaluator, EvalCase, EvalReport
 from .guardrails import GuardrailError, block_keywords, max_length, pii_scrubber
@@ -50,6 +53,9 @@ __all__ = [
     "ModelChain",
     "free_tier_chain",
     "TogetherModel",
+    "AzureOpenAIModel",
+    "VertexAIModel",
+    "HybridKnowledge",
     "MCPClient",
     "AgentEvaluator",
     "EvalCase",

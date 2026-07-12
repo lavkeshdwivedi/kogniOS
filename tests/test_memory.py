@@ -61,3 +61,48 @@ def test_long_term_delete():
     mem.store("key", "value")
     mem.delete("key")
     assert mem.recall("key") is None
+
+
+def test_long_term_remember_forget_aliases():
+    mem = LongTermMemory(db_path=":memory:")
+    mem.remember("city", "London")
+    assert mem.recall("city") == "London"
+    mem.forget("city")
+    assert mem.recall("city") is None
+
+
+# --- ShortTermMemory compaction tests ---
+
+
+class _StubModel:
+    """Minimal model stub that returns a fixed summary."""
+
+    def complete(self, messages, system="", **kw):
+        from kognios.models.base import ModelResponse
+
+        return ModelResponse(content="Summary of dropped turns.", tool_calls=[], usage={})
+
+
+def test_short_term_compaction_triggers():
+    model = _StubModel()
+    mem = ShortTermMemory(max_turns=2, compaction_model=model)
+    # Fill past the limit (max_turns=2 → limit=4 messages)
+    for i in range(3):
+        mem.append("user", f"msg {i}")
+        mem.append("assistant", f"reply {i}")
+    msgs = mem.messages()
+    # Should have a system summary + 4 recent messages
+    roles = [m["role"] for m in msgs]
+    assert "system" in roles
+    assert any("summary" in m["content"].lower() for m in msgs if m["role"] == "system")
+
+
+def test_short_term_no_compaction_without_model():
+    mem = ShortTermMemory(max_turns=2)
+    for i in range(3):
+        mem.append("user", f"msg {i}")
+        mem.append("assistant", f"reply {i}")
+    msgs = mem.messages()
+    # No system message — plain sliding window
+    assert all(m["role"] != "system" for m in msgs)
+    assert len(msgs) == 4

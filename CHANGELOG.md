@@ -9,6 +9,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] - 2026-07-12
+
+### Added
+- **`HybridKnowledge`**: new `kognios/knowledge/hybrid.py` — combines `SQLiteKnowledge` (FTS5/BM25)
+  and `NumpyVectorKnowledge` (cosine similarity) via Reciprocal Rank Fusion (`k=60` default).
+  Implements the `KnowledgeBase` ABC so it drops in everywhere `knowledge=` is accepted.
+  No new hard dependencies beyond the existing `[vector]` extra.
+- **`kognios ingest --backend hybrid`**: new CLI choice that builds both an FTS5 index and a
+  numpy vector store from a single document in one command.
+- **`ShortTermMemory.compaction_model`**: optional `BaseModel` constructor param; when the
+  sliding window would drop turns, calls `compaction_model.complete()` to summarise the dropped
+  portion and prepends a concise `role: system` summary turn instead of silently deleting context.
+  Async variant `ShortTermMemory.acompact()` available for callers on an async event loop.
+- **`LongTermMemory.remember()` / `.forget()`**: ergonomic aliases for `store()` / `delete()`
+  that match the README examples and common mental models.
+- **`AzureOpenAIModel`**: new `kognios/models/azure.py` — Azure OpenAI provider, subclasses
+  `OpenAIModel` and initialises `openai.AzureOpenAI`. Accepts `azure_endpoint`, `api_version`,
+  `deployment_name`, and optional `api_key`.
+- **`VertexAIModel`**: new `kognios/models/vertex.py` — Google Vertex AI (Gemini) provider.
+  Wraps the `google-cloud-aiplatform` SDK; authenticates via Application Default Credentials.
+  Optional `[vertexai]` extra: `pip install 'kognios[vertexai]'`.
+
+### Fixed
+- **`LongTermMemory.semantic_recall()` fallback**: when no embeddings are stored (e.g. facts
+  were added before an `embed_fn` was configured), the fallback now performs a
+  `WHERE key LIKE '%<first_token>%'` search instead of returning arbitrary first-N rows.
+
+---
+
 ## [1.3.0] - 2026-07-12
 
 ### Added

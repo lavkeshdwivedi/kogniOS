@@ -53,11 +53,13 @@ class LongTermMemory:
         ).fetchall()
 
         if not rows:
-            # No embeddings stored yet — fall back to returning first top_k facts
-            all_rows = self._conn.execute(
-                "SELECT key, value FROM long_term_memory LIMIT ?", (top_k,)
+            # No embeddings stored yet — fall back to keyword LIKE search on the key column
+            first_token = query.split()[0] if query.split() else ""
+            like_rows = self._conn.execute(
+                "SELECT key, value FROM long_term_memory WHERE key LIKE ? LIMIT ?",
+                (f"%{first_token}%", top_k),
             ).fetchall()
-            return [(k, v) for k, v in all_rows]
+            return [(k, v) for k, v in like_rows]
 
         try:
             import numpy as np
@@ -87,3 +89,11 @@ class LongTermMemory:
     def delete(self, key: str) -> None:
         self._conn.execute("DELETE FROM long_term_memory WHERE key = ?", (key,))
         self._conn.commit()
+
+    def remember(self, key: str, value: str) -> None:
+        """Alias for store()."""
+        self.store(key, value)
+
+    def forget(self, key: str) -> None:
+        """Alias for delete()."""
+        self.delete(key)
