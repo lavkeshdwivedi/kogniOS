@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kognios"
-version = "1.4.1"
+version = "1.4.2"
 description = "A from-scratch Python agent framework with Tools, Memory, Knowledge/RAG, Team routing, streaming, and async."
 requires-python = ">=3.11"
 readme = "README.md"

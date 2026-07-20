@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.2] - 2026-07-20
+
+### Fixed
+- **PyPI publish**: changed `license = {text = "MIT"}` to SPDX expression `license = "MIT"` (PEP 639) — prevents hatchling emitting a `License-File` wheel metadata field that PyPI rejected as unrecognized.
+- **CI format check**: reformatted `kognios/guardrails/voice.py` with ruff (one BANNED_PHRASES entry per line).
+
+---
+
 ## [1.4.0] - 2026-07-12
 
 ### Added
