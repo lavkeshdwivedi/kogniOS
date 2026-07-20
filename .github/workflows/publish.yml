@@ -19,13 +19,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install build tools
-        run: pip install build twine
+        run: pip install build
 
       - name: Build wheel and sdist
         run: python -m build
-
-      - name: Check dist artifacts
-        run: python -m twine check dist/*
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -48,19 +45,7 @@ jobs:
           name: python-package-distributions
           path: dist/
 
-      - name: Publish to PyPI (API token)
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: pip install twine && python -m twine upload dist/*
-
-      # ── OIDC Trusted Publishing alternative (uncomment to use) ──────────────
-      # To enable: go to pypi.org → kognios project → Settings → Publishing
-      # Add a trusted publisher: owner=lavkeshdwivedi, repo=kogniOS,
-      # workflow=publish.yml, environment=pypi. Then replace the step above with:
-      #
-      # permissions:
-      #   id-token: write
-      #
-      # - name: Publish to PyPI (OIDC)
-      #   uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
