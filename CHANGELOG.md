@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.3] - 2026-07-20
+
+### Fixed
+- **CI**: switched publish workflow from twine to `pypa/gh-action-pypi-publish` — twine 6.2.0 incorrectly rejects METADATA 2.4 fields before upload.
+
+---
+
 ## [1.4.2] - 2026-07-20
 
 ### Fixed
