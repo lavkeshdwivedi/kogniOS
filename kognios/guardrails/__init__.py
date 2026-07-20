@@ -5,6 +5,12 @@ from .builtins import (
     pii_scrubber,
     profanity_filter,
 )
+from .voice import (
+    BANNED_PHRASES,
+    check_excerpt,
+    find_banned_phrases,
+    voice_guardrail,
+)
 
 __all__ = [
     "GuardrailError",
@@ -14,4 +20,8 @@ __all__ = [
     "max_length",
     "pii_scrubber",
     "profanity_filter",
+    "BANNED_PHRASES",
+    "check_excerpt",
+    "find_banned_phrases",
+    "voice_guardrail",
 ]
