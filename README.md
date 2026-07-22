@@ -15,7 +15,7 @@
 
 Most agent frameworks are wrappers around wrappers. Kogni·OS is written from scratch so you can **read and understand every line** and extend it without fighting abstractions.
 
-- SQLite FTS5 for RAG — no Chroma, no FAISS, no vector DB
+- SQLite FTS5 for RAG (no Chroma, no FAISS, no vector DB)
 - ReAct loop in ~800 lines of core code
 - Zero heavy dependencies
 - Built-in streaming, async, and structured output
