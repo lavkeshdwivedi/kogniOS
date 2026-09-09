@@ -200,6 +200,20 @@ class ModelChain(BaseModel):
                 try:
                     resp = model.complete(messages, tools=tools, system=system, **call_kwargs)
                     resp.content = self._clean(resp.content)
+                    if not resp.content.strip() and not resp.tool_calls:
+                        # A response that isn't an error is still not usable
+                        # if think-stripping (or the provider itself) left
+                        # nothing behind — e.g. a reasoning model that spent
+                        # its whole budget on an unclosed <think> block and
+                        # never reached the answer. Treat it the same as any
+                        # other per-model failure: record it and fall
+                        # through to the next model instead of handing back
+                        # an empty "success".
+                        last_err = RuntimeError(
+                            f"{type(model).__name__} returned no usable content "
+                            "after cleaning (empty, or reasoning-only)"
+                        )
+                        break
                     return resp
                 except Exception as exc:
                     last_err = exc
@@ -311,6 +325,17 @@ class ModelChain(BaseModel):
             try:
                 resp = await model.acomplete(messages, tools=tools, system=system)
                 resp.content = self._clean(resp.content)
+                if not resp.content.strip() and not resp.tool_calls:
+                    # See the matching comment in complete(): a response
+                    # that isn't an error can still be unusable once
+                    # think-stripped, and should fall through the same way
+                    # a provider error does rather than being returned as
+                    # if it were a valid completion.
+                    last_err = RuntimeError(
+                        f"{type(model).__name__} returned no usable content "
+                        "after cleaning (empty, or reasoning-only)"
+                    )
+                    continue
                 return resp
             except Exception as exc:
                 last_err = exc
