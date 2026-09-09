@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.4] - 2026-09-09
+
+### Fixed
+- **`ModelChain`**: `complete()`/`acomplete()` returned the first response that didn't raise, without checking whether `.content` survived cleaning — a model returning blank content, or one that burned its whole budget on an unclosed `<think>` block, was accepted as a valid completion instead of falling through to the next model in the chain. A response with no content and no `tool_calls` after cleaning is now treated the same as any other per-model failure.
+
+---
+
 ## [1.4.3] - 2026-07-20
 
 ### Fixed
