@@ -12,6 +12,7 @@ class ModelResponse:
     content: str
     tool_calls: list[dict] = field(default_factory=list)
     usage: dict = field(default_factory=dict)
+    model: str = ""
 
 
 @dataclass
@@ -19,6 +20,7 @@ class ModelChunk:
     text: str = ""
     tool_calls: list[dict] = field(default_factory=list)
     final: bool = False
+    model: str = ""
 
 
 class BaseModel(ABC):

@@ -200,6 +200,8 @@ class ModelChain(BaseModel):
                 try:
                     resp = model.complete(messages, tools=tools, system=system, **call_kwargs)
                     resp.content = self._clean(resp.content)
+                    if not resp.model:
+                        resp.model = getattr(model, "model", type(model).__name__)
                     if not resp.content.strip() and not resp.tool_calls:
                         # A response that isn't an error is still not usable
                         # if think-stripping (or the provider itself) left
@@ -256,7 +258,10 @@ class ModelChain(BaseModel):
                 time.sleep(wait)
             self._pace()
             try:
-                yield from model.stream(messages, tools=tools, system=system)
+                for chunk in model.stream(messages, tools=tools, system=system):
+                    if not chunk.model:
+                        chunk.model = getattr(model, "model", type(model).__name__)
+                    yield chunk
                 return
             except Exception as exc:
                 last_err = exc
@@ -290,6 +295,8 @@ class ModelChain(BaseModel):
                 await asyncio.sleep(wait)
             try:
                 async for chunk in model.astream(messages, tools=tools, system=system):
+                    if not chunk.model:
+                        chunk.model = getattr(model, "model", type(model).__name__)
                     yield chunk
                 return
             except Exception as exc:
@@ -325,6 +332,8 @@ class ModelChain(BaseModel):
             try:
                 resp = await model.acomplete(messages, tools=tools, system=system)
                 resp.content = self._clean(resp.content)
+                if not resp.model:
+                    resp.model = getattr(model, "model", type(model).__name__)
                 if not resp.content.strip() and not resp.tool_calls:
                     # See the matching comment in complete(): a response
                     # that isn't an error can still be unusable once
@@ -370,6 +379,15 @@ def free_tier_chain(
 
     Default provider order: Groq -> Gemini -> Together -> xAI -> Anthropic.
     Pass preferred="gemini" to promote that provider to the front.
+
+    This is a quality tradeoff, not just a cost optimization: the free-tier
+    providers rarely error or rate-limit on typical workloads, so they end
+    up serving the large majority of requests even with Anthropic present
+    later in the chain. Fine for high-volume or low-stakes generation;
+    pass preferred="anthropic" for anything where output quality matters
+    more than the marginal cost of a paid call. Check ModelResponse.model
+    (or ModelChunk.model) on what comes back if you want to confirm which
+    provider actually answered rather than assuming.
 
     Extra keyword arguments (e.g. max_tokens=400, temperature=0.25) are
     forwarded to every model constructor.

@@ -124,3 +124,43 @@ def test_exported_from_kognios():
     from kognios import ModelChain as MC
 
     assert MC is ModelChain
+
+
+def test_response_tagged_with_serving_model_when_provider_sets_it():
+    m1 = _mock_model()
+    m1.complete.return_value = ModelResponse(content="hello", model="claude-sonnet-4-6")
+    chain = ModelChain([m1], min_interval=0)
+    resp = chain.complete([{"role": "user", "content": "hi"}])
+    assert resp.model == "claude-sonnet-4-6"
+
+
+def test_response_tagged_with_serving_model_as_fallback():
+    # A provider that forgot to set ModelResponse.model itself (e.g. a
+    # third-party BaseModel subclass) still gets tagged by the chain,
+    # falling back to the wrapper's own .model attribute.
+    m1 = MagicMock()
+    m1.model = "llama-3.3-70b-versatile"
+    m1.complete.return_value = ModelResponse(content="hello")
+    chain = ModelChain([m1], min_interval=0)
+    resp = chain.complete([{"role": "user", "content": "hi"}])
+    assert resp.model == "llama-3.3-70b-versatile"
+
+
+def test_response_model_falls_back_on_second_model_in_chain():
+    m1 = _mock_model(side_effect=RuntimeError("down"))
+    m1.model = "llama-3.3-70b-versatile"
+    m2 = MagicMock()
+    m2.model = "claude-sonnet-4-6"
+    m2.complete.return_value = ModelResponse(content="from fallback")
+    chain = ModelChain([m1, m2], min_interval=0)
+    resp = chain.complete([{"role": "user", "content": "hi"}])
+    assert resp.content == "from fallback"
+    assert resp.model == "claude-sonnet-4-6"
+
+
+def test_response_model_falls_back_to_class_name_without_model_attr():
+    m1 = MagicMock(spec=["complete"])  # no .model attribute at all
+    m1.complete.return_value = ModelResponse(content="hello")
+    chain = ModelChain([m1], min_interval=0)
+    resp = chain.complete([{"role": "user", "content": "hi"}])
+    assert resp.model == type(m1).__name__

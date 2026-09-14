@@ -65,7 +65,7 @@ class VertexAIModel(BaseModel):
                 "input_tokens": response.usage_metadata.prompt_token_count,
                 "output_tokens": response.usage_metadata.candidates_token_count,
             }
-        return ModelResponse(content=text, tool_calls=[], usage=usage)
+        return ModelResponse(content=text, tool_calls=[], usage=usage, model=self.model)
 
     def stream(
         self,
@@ -81,8 +81,8 @@ class VertexAIModel(BaseModel):
             except (IndexError, AttributeError):
                 pass
             if text:
-                yield ModelChunk(text=text)
-        yield ModelChunk(tool_calls=[], final=True)
+                yield ModelChunk(text=text, model=self.model)
+        yield ModelChunk(tool_calls=[], final=True, model=self.model)
 
     async def acomplete(
         self,

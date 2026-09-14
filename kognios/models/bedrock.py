@@ -54,10 +54,10 @@ class BedrockModel(BaseModel):
         params = self._base_params(messages, tools, system)
         with self._client.messages.stream(**params) as s:
             for text in s.text_stream:
-                yield ModelChunk(text=text)
+                yield ModelChunk(text=text, model=self.model)
             final = s.get_final_message()
             tool_calls = _extract_tool_calls(final.content)
-            yield ModelChunk(tool_calls=tool_calls, final=True)
+            yield ModelChunk(tool_calls=tool_calls, final=True, model=self.model)
 
     def _base_params(self, messages, tools, system) -> dict:
         params: dict = {
@@ -86,6 +86,7 @@ class BedrockModel(BaseModel):
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
             },
+            model=self.model,
         )
 
 

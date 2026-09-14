@@ -52,7 +52,7 @@ class OpenAIModel(BaseModel):
         for chunk in self._client.chat.completions.create(**params):
             delta = chunk.choices[0].delta
             if delta.content:
-                yield ModelChunk(text=delta.content)
+                yield ModelChunk(text=delta.content, model=self.model)
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -69,7 +69,7 @@ class OpenAIModel(BaseModel):
             {"id": v["id"], "name": v["name"], "input": json.loads(v["arguments"] or "{}")}
             for v in accumulated_tools.values()
         ]
-        yield ModelChunk(tool_calls=tool_calls, final=True)
+        yield ModelChunk(tool_calls=tool_calls, final=True, model=self.model)
 
     async def acomplete(
         self,
@@ -94,7 +94,7 @@ class OpenAIModel(BaseModel):
         async for chunk in await self._async_client.chat.completions.create(**params):
             delta = chunk.choices[0].delta
             if delta.content:
-                yield ModelChunk(text=delta.content)
+                yield ModelChunk(text=delta.content, model=self.model)
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -111,7 +111,7 @@ class OpenAIModel(BaseModel):
             {"id": v["id"], "name": v["name"], "input": json.loads(v["arguments"] or "{}")}
             for v in accumulated_tools.values()
         ]
-        yield ModelChunk(tool_calls=tool_calls, final=True)
+        yield ModelChunk(tool_calls=tool_calls, final=True, model=self.model)
 
     def _base_params(self, messages, tools, system) -> dict:
         msgs = list(messages)
@@ -151,4 +151,6 @@ class OpenAIModel(BaseModel):
                 "input_tokens": response.usage.prompt_tokens,
                 "output_tokens": response.usage.completion_tokens,
             }
-        return ModelResponse(content=msg.content or "", tool_calls=tool_calls, usage=usage)
+        return ModelResponse(
+            content=msg.content or "", tool_calls=tool_calls, usage=usage, model=self.model
+        )
