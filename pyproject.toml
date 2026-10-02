@@ -60,6 +60,11 @@ packages = ["kognios"]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+# Pinned explicitly so a ruff release that changes its default rule set cannot
+# turn CI red on code nobody touched (ruff 0.16 did exactly that).
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "-m 'not integration'"
