@@ -164,3 +164,9 @@ def test_response_model_falls_back_to_class_name_without_model_attr():
     chain = ModelChain([m1], min_interval=0)
     resp = chain.complete([{"role": "user", "content": "hi"}])
     assert resp.model == type(m1).__name__
+
+
+def test_empty_chain_error_names_the_env_vars():
+    chain = ModelChain([], min_interval=0)
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+        chain.complete([{"role": "user", "content": "hi"}])

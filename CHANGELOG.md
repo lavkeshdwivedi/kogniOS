@@ -9,12 +9,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.1] - 2026-10-02
+
+### Fixed
+- `free_tier_chain()` no longer includes `llama-3.3-70b-versatile` or `llama-3.1-8b-instant`. Groq shut both down in August 2026, so every call that reached them returned 404 and only added latency before the next fallback.
+- A chain with no models (for example `free_tier_chain()` with no API keys set) now fails with a message naming the environment variables to set, instead of `Last error: None`.
+
+---
+
 ## [1.5.0] - 2026-10-01
 
 ### Added
-- **`ModelResponse.model` / `ModelChunk.model`**: both now carry the name of the model that actually served the request. Every built-in provider (`openai.py` and everything that subclasses it — Groq, Gemini, Together, xAI, Cohere, Mistral, Ollama — plus `anthropic.py`, `bedrock.py`, `vertex.py`) sets it directly; `ModelChain.complete()`/`acomplete()`/`stream()`/`astream()` also tag it as a fallback (`resp.model or model.model or type(model).__name__`) so a third-party `BaseModel` subclass that forgets to set it still gets tagged correctly by the chain.
+- **`ModelResponse.model` / `ModelChunk.model`**: both now carry the name of the model that actually served the request. Every built-in provider (`openai.py` and everything that subclasses it: Groq, Gemini, Together, xAI, Cohere, Mistral, Ollama; plus `anthropic.py`, `bedrock.py`, `vertex.py`) sets it directly; `ModelChain.complete()`/`acomplete()`/`stream()`/`astream()` also tag it as a fallback (`resp.model or model.model or type(model).__name__`) so a third-party `BaseModel` subclass that forgets to set it still gets tagged correctly by the chain.
 
-  This closes a real blind spot: `free_tier_chain()`'s default order (Groq → Gemini → Together → xAI → Anthropic) means the free-tier provider practically never errors or rate-limits on typical workloads, so it quietly serves the large majority of requests regardless of how good the paid model later in the chain is. There was previously no way to see this from the calling side without reading `chain.py` and reasoning about it — a downstream pipeline spent real debugging effort working out that its output-quality problem was actually Groq's free llama-3.3-70b serving almost every request, not Claude. A caller can now just check `response.model`.
+  This closes a real blind spot: `free_tier_chain()`'s default order (Groq → Gemini → Together → xAI → Anthropic) means the free-tier provider practically never errors or rate-limits on typical workloads, so it quietly serves the large majority of requests regardless of how good the paid model later in the chain is. There was previously no way to see this from the calling side without reading `chain.py` and reasoning about it, a downstream pipeline spent real debugging effort working out that its output-quality problem was actually Groq's free llama-3.3-70b serving almost every request, not Claude. A caller can now just check `response.model`.
 - `free_tier_chain()`'s docstring now says explicitly that free-tier-first is a quality/cost tradeoff, not just a cost optimization with no downside, and points at `preferred="anthropic"` and `ModelResponse.model` as the way to check or override it.
 
 ### Changed
@@ -31,21 +39,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.4.4] - 2026-09-09
 
 ### Fixed
-- **`ModelChain`**: `complete()`/`acomplete()` returned the first response that didn't raise, without checking whether `.content` survived cleaning — a model returning blank content, or one that burned its whole budget on an unclosed `<think>` block, was accepted as a valid completion instead of falling through to the next model in the chain. A response with no content and no `tool_calls` after cleaning is now treated the same as any other per-model failure.
+- **`ModelChain`**: `complete()`/`acomplete()` returned the first response that didn't raise, without checking whether `.content` survived cleaning, a model returning blank content, or one that burned its whole budget on an unclosed `<think>` block, was accepted as a valid completion instead of falling through to the next model in the chain. A response with no content and no `tool_calls` after cleaning is now treated the same as any other per-model failure.
 
 ---
 
 ## [1.4.3] - 2026-07-20
 
 ### Fixed
-- **CI**: switched publish workflow from twine to `pypa/gh-action-pypi-publish` — twine 6.2.0 incorrectly rejects METADATA 2.4 fields before upload.
+- **CI**: switched publish workflow from twine to `pypa/gh-action-pypi-publish`: twine 6.2.0 incorrectly rejects METADATA 2.4 fields before upload.
 
 ---
 
 ## [1.4.2] - 2026-07-20
 
 ### Fixed
-- **PyPI publish**: changed `license = {text = "MIT"}` to SPDX expression `license = "MIT"` (PEP 639) — prevents hatchling emitting a `License-File` wheel metadata field that PyPI rejected as unrecognized.
+- **PyPI publish**: changed `license = {text = "MIT"}` to SPDX expression `license = "MIT"` (PEP 639): prevents hatchling emitting a `License-File` wheel metadata field that PyPI rejected as unrecognized.
 - **CI format check**: reformatted `kognios/guardrails/voice.py` with ruff (one BANNED_PHRASES entry per line).
 
 ---
@@ -53,7 +61,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.4.0] - 2026-07-12
 
 ### Added
-- **`HybridKnowledge`**: new `kognios/knowledge/hybrid.py` — combines `SQLiteKnowledge` (FTS5/BM25)
+- **`HybridKnowledge`**: new `kognios/knowledge/hybrid.py`: combines `SQLiteKnowledge` (FTS5/BM25)
   and `NumpyVectorKnowledge` (cosine similarity) via Reciprocal Rank Fusion (`k=60` default).
   Implements the `KnowledgeBase` ABC so it drops in everywhere `knowledge=` is accepted.
   No new hard dependencies beyond the existing `[vector]` extra.
@@ -65,10 +73,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Async variant `ShortTermMemory.acompact()` available for callers on an async event loop.
 - **`LongTermMemory.remember()` / `.forget()`**: ergonomic aliases for `store()` / `delete()`
   that match the README examples and common mental models.
-- **`AzureOpenAIModel`**: new `kognios/models/azure.py` — Azure OpenAI provider, subclasses
+- **`AzureOpenAIModel`**: new `kognios/models/azure.py`: Azure OpenAI provider, subclasses
   `OpenAIModel` and initialises `openai.AzureOpenAI`. Accepts `azure_endpoint`, `api_version`,
   `deployment_name`, and optional `api_key`.
-- **`VertexAIModel`**: new `kognios/models/vertex.py` — Google Vertex AI (Gemini) provider.
+- **`VertexAIModel`**: new `kognios/models/vertex.py`: Google Vertex AI (Gemini) provider.
   Wraps the `google-cloud-aiplatform` SDK; authenticates via Application Default Credentials.
   Optional `[vertexai]` extra: `pip install 'kognios[vertexai]'`.
 

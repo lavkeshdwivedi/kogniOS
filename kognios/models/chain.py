@@ -16,8 +16,6 @@ _GROQ_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
 ]
 
 _GEMINI_MODELS = [
@@ -169,6 +167,15 @@ class ModelChain(BaseModel):
             return "decommission" in msg or "not found" in msg
         return False
 
+    def _exhausted(self, last_err: Exception | None) -> RuntimeError:
+        if not self.models:
+            return RuntimeError(
+                "All models in chain exhausted: the chain has no models. free_tier_chain() adds one "
+                "model per API key it finds in the environment, so set GROQ_API_KEY (or GEMINI_API_KEY, "
+                "TOGETHER_API_KEY, XAI_API_KEY, ANTHROPIC_API_KEY) first."
+            )
+        return RuntimeError(f"All models in chain exhausted. Last error: {last_err}")
+
     def _clean(self, text: str) -> str:
         return _strip_think(text) if self.strip_think else text
 
@@ -208,7 +215,7 @@ class ModelChain(BaseModel):
                     if not resp.content.strip() and not resp.tool_calls:
                         # A response that isn't an error is still not usable
                         # if think-stripping (or the provider itself) left
-                        # nothing behind — e.g. a reasoning model that spent
+                        # nothing behind, e.g. a reasoning model that spent
                         # its whole budget on an unclosed <think> block and
                         # never reached the answer. Treat it the same as any
                         # other per-model failure: record it and fall
@@ -238,7 +245,7 @@ class ModelChain(BaseModel):
                     else:
                         break
 
-        raise RuntimeError(f"All models in chain exhausted. Last error: {last_err}")
+        raise self._exhausted(last_err)
 
     def stream(
         self,
@@ -273,7 +280,7 @@ class ModelChain(BaseModel):
                 elif self._is_rate_limit(exc):
                     self._cooldown_until[mid] = time.time() + self._parse_retry_after(exc)
 
-        raise RuntimeError(f"All models in chain exhausted. Last error: {last_err}")
+        raise self._exhausted(last_err)
 
     async def astream(
         self,
@@ -309,7 +316,7 @@ class ModelChain(BaseModel):
                 elif self._is_rate_limit(exc):
                     self._cooldown_until[mid] = time.time() + self._parse_retry_after(exc)
 
-        raise RuntimeError(f"All models in chain exhausted. Last error: {last_err}")
+        raise self._exhausted(last_err)
 
     async def acomplete(
         self,
@@ -356,7 +363,7 @@ class ModelChain(BaseModel):
                 elif self._is_rate_limit(exc):
                     self._cooldown_until[mid] = time.time() + self._parse_retry_after(exc)
 
-        raise RuntimeError(f"All models in chain exhausted. Last error: {last_err}")
+        raise self._exhausted(last_err)
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
