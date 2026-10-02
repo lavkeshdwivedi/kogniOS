@@ -34,7 +34,7 @@ def test_openai_basic_run():
     """Real API call to OpenAI — requires OPENAI_API_KEY."""
     from kognios import Agent, OpenAIModel
 
-    agent = Agent(model=OpenAIModel(model="gpt-4o-mini"))
+    agent = Agent(model=OpenAIModel(model="gpt-6-luna"))
     result = agent.run("Reply with exactly: hello")
     assert "hello" in result.lower()
 

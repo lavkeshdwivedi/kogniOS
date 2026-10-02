@@ -32,7 +32,7 @@ def test_cohere_custom_model():
 
 def test_xai_defaults():
     m = XAIModel()
-    assert m.model == "grok-4"
+    assert m.model == "grok-4.7"
     assert "x.ai" in str(m._client.base_url)
 
 

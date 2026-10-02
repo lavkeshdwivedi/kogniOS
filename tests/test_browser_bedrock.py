@@ -70,7 +70,7 @@ def test_bedrock_model_init():
             aws_secret_key="fake_secret",
             aws_region="us-east-1",
         )
-        assert m.model == "anthropic.claude-sonnet-5"
+        assert m.model == "anthropic.claude-sonnet-5-5"
 
 
 def test_bedrock_custom_model():

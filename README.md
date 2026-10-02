@@ -333,16 +333,16 @@ from kognios.models.bedrock   import BedrockModel
 from kognios.models.xai       import XAIModel
 from kognios.models.together  import TogetherModel
 
-model = AnthropicModel(model="claude-sonnet-4-6")
-model = OpenAIModel(model="gpt-4o")
+model = AnthropicModel(model="claude-sonnet-5-5")
+model = OpenAIModel(model="gpt-6.1-sol")
 model = GroqModel(model="openai/gpt-oss-120b")                          # GROQ_API_KEY
-model = GeminiModel(model="gemini-2.5-flash")                           # GEMINI_API_KEY
+model = GeminiModel(model="gemini-3.8-flash")                           # GEMINI_API_KEY
 model = OllamaModel(model="llama3.3")                                   # needs Ollama running locally
 model = MistralModel(model="mistral-large-latest")                      # MISTRAL_API_KEY
 model = CohereModel(model="command-a-plus-05-2026")                     # COHERE_API_KEY
 model = BedrockModel(model="anthropic.claude-3-7-sonnet-20250219-v1:0") # AWS_* env vars
-model = XAIModel(model="grok-4")                                        # XAI_API_KEY
-model = TogetherModel(model="deepseek-ai/DeepSeek-V3")                  # TOGETHER_API_KEY
+model = XAIModel(model="grok-4.7")                                        # XAI_API_KEY
+model = TogetherModel(model="deepseek-ai/DeepSeek-V4.1-Flash")           # TOGETHER_API_KEY
 ```
 
 All providers share the same `BaseModel` interface; one line to swap.
@@ -370,7 +370,7 @@ from kognios import ModelChain, GroqModel, GeminiModel, AnthropicModel
 
 chain = ModelChain([
     GroqModel(model="openai/gpt-oss-120b"),
-    GeminiModel(model="gemini-2.5-flash"),
+    GeminiModel(model="gemini-3.8-flash"),
     AnthropicModel(),
 ])
 ```
@@ -432,7 +432,7 @@ from kognios.tools.builtins import (
 kognios chat
 
 # Choose provider and model
-kognios chat -p openai -m gpt-4o
+kognios chat -p openai -m gpt-6.1-sol
 
 # One-shot Q&A over a local document
 kognios ask README.md "What does this project do?"
@@ -548,7 +548,7 @@ agent = Agent(model=AnthropicModel(), tracer=tracer)
 agent.run("What is 2+2?")
 
 tracer.print_spans()
-# [TRACE] llm.complete 823.4ms model=claude-sonnet-4-6
+# [TRACE] llm.complete 823.4ms model=claude-sonnet-5-5
 ```
 
 ---

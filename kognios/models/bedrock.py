@@ -16,7 +16,7 @@ class BedrockModel(BaseModel):
 
     def __init__(
         self,
-        model: str = "anthropic.claude-sonnet-5",
+        model: str = "anthropic.claude-sonnet-5-5",
         aws_access_key: str | None = None,
         aws_secret_key: str | None = None,
         aws_region: str | None = None,

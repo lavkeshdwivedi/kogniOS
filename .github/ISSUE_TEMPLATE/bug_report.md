@@ -40,7 +40,7 @@ Traceback (most recent call last):
 | Python | `python --version` |
 | kognios | `pip show kognios` |
 | Provider | Anthropic / OpenAI / Groq / Gemini |
-| Model | e.g. claude-sonnet-4-6 |
+| Model | e.g. claude-sonnet-5-5 |
 | OS | Windows / macOS / Linux |
 
 ## Additional context

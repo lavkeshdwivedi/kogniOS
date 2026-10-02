@@ -32,7 +32,7 @@ print(memory.facts())               # ['user_name=Alice', 'preferred_language=Py
 
 # Inject into an agent
 agent = Agent(
-    model=AnthropicModel("claude-sonnet-4-5"),
+    model=AnthropicModel("claude-sonnet-5-5"),
     system=memory.as_system_prompt_fragment(),
 )
 response = agent.run("What is my name?")

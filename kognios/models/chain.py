@@ -15,33 +15,36 @@ from .base import BaseModel, ModelChunk, ModelResponse
 _GROQ_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "qwen/qwen3.6-27b",
+    "qwen/qwen3.8-27b",
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
 ]
 
 _GEMINI_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    # 2.5 is closed to new projects but still serves keys that already used it, so it stays
+    # as the last resort for existing deployments that were running on it before 1.5.0.
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
 ]
 
 _TOGETHER_MODELS = [
-    "deepseek-ai/DeepSeek-V3",
-    "Qwen/Qwen2.5-72B-Instruct-Turbo",
+    "deepseek-ai/DeepSeek-V4.1-Flash",
+    "deepseek-ai/DeepSeek-V4-Flash-0731",
     "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-    "meta-llama/Llama-3.1-8B-Instruct-Turbo",
 ]
 
 _XAI_MODELS = [
-    "grok-4",
-    "grok-3",
-    "grok-3-mini",
+    "grok-4.7",
+    "grok-4.5",
+    "grok-4.3",
 ]
 
 _ANTHROPIC_MODELS = [
-    "claude-sonnet-4-6",
+    "claude-sonnet-5-5",
     "claude-haiku-4-5-20251001",
 ]
 

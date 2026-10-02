@@ -11,7 +11,7 @@ from .base import BaseModel, ModelChunk, ModelResponse
 class OpenAIModel(BaseModel):
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = "gpt-6.1-sol",
         api_key: str | None = None,
         base_url: str | None = None,
         **kwargs,

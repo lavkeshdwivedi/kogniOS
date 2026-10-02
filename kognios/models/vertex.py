@@ -18,7 +18,7 @@ class VertexAIModel(BaseModel):
 
         from kognios import VertexAIModel
         model = VertexAIModel(
-            model="gemini-2.0-flash-001",
+            model="gemini-3.8-flash",
             project="my-gcp-project",
             location="us-central1",
         )
@@ -26,7 +26,7 @@ class VertexAIModel(BaseModel):
 
     def __init__(
         self,
-        model: str = "gemini-2.0-flash-001",
+        model: str = "gemini-3.8-flash",
         project: str | None = None,
         location: str = "us-central1",
         **kwargs,

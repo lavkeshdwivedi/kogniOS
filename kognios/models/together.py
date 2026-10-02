@@ -7,7 +7,7 @@ from .openai import OpenAIModel
 
 class TogetherModel(OpenAIModel):
     def __init__(
-        self, model: str = "deepseek-ai/DeepSeek-V3", api_key: str | None = None, **kwargs
+        self, model: str = "deepseek-ai/DeepSeek-V4.1-Flash", api_key: str | None = None, **kwargs
     ):
         super().__init__(
             model=model,

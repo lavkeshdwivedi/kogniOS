@@ -9,13 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.5.0] - 2026-09-14
+## [1.5.0] - 2026-10-01
 
 ### Added
 - **`ModelResponse.model` / `ModelChunk.model`**: both now carry the name of the model that actually served the request. Every built-in provider (`openai.py` and everything that subclasses it — Groq, Gemini, Together, xAI, Cohere, Mistral, Ollama — plus `anthropic.py`, `bedrock.py`, `vertex.py`) sets it directly; `ModelChain.complete()`/`acomplete()`/`stream()`/`astream()` also tag it as a fallback (`resp.model or model.model or type(model).__name__`) so a third-party `BaseModel` subclass that forgets to set it still gets tagged correctly by the chain.
 
   This closes a real blind spot: `free_tier_chain()`'s default order (Groq → Gemini → Together → xAI → Anthropic) means the free-tier provider practically never errors or rate-limits on typical workloads, so it quietly serves the large majority of requests regardless of how good the paid model later in the chain is. There was previously no way to see this from the calling side without reading `chain.py` and reasoning about it — a downstream project (lavkesh.com's weekly article generator) spent real debugging effort working out that its "voice quality" problem was actually "Groq's free llama-3.3-70b is writing almost everything, not Claude." A caller can now just check `response.model`.
 - `free_tier_chain()`'s docstring now says explicitly that free-tier-first is a quality/cost tradeoff, not just a cost optimization with no downside, and points at `preferred="anthropic"` and `ModelResponse.model` as the way to check or override it.
+
+### Changed
+- **Default model IDs refreshed (checked against each provider's model docs on 2026-10-01).** Several defaults pointed at models that were retired or never existed:
+  - Anthropic: `claude-sonnet-4-6` -> `claude-sonnet-5-5` (Bedrock: `anthropic.claude-sonnet-5-5`).
+  - OpenAI: `gpt-4o` -> `gpt-6.1-sol`; CLI default `gpt-4o-mini` -> `gpt-6-luna`.
+  - Gemini: `gemini-2.5-flash` (closed to new projects) -> `gemini-3.8-flash`; Vertex default `gemini-2.0-flash-001` (shut down) -> `gemini-3.8-flash`. `free_tier_chain()` Gemini pool is now `gemini-3.8-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, with `gemini-2.5-flash` and `gemini-2.5-flash-lite` kept last so keys already running on 2.5 keep working; the shut-down 2.0 models are removed.
+  - xAI: `grok-4` -> `grok-4.7`; chain pool `grok-4`/`grok-3`/`grok-3-mini` (no longer listed) -> `grok-4.7`, `grok-4.5`, `grok-4.3`.
+  - Groq: CLI default `llama-4-scout` (not a Groq model ID) -> `openai/gpt-oss-120b`; chain `qwen/qwen3.6-27b` -> `qwen/qwen3.8-27b`.
+  - Together: `deepseek-ai/DeepSeek-V3` (no longer serverless) -> `deepseek-ai/DeepSeek-V4.1-Flash`; chain pool drops unlisted Qwen2.5 and Llama 3.1 8B.
 
 ---
 

@@ -6,7 +6,7 @@ from .openai import OpenAIModel
 
 
 class GeminiModel(OpenAIModel):
-    def __init__(self, model: str = "gemini-2.5-flash", api_key: str | None = None, **kwargs):
+    def __init__(self, model: str = "gemini-3.8-flash", api_key: str | None = None, **kwargs):
         super().__init__(
             model=model,
             api_key=api_key or os.environ.get("GEMINI_API_KEY", "gemini"),

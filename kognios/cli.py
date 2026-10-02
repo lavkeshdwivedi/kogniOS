@@ -11,15 +11,15 @@ from .models.anthropic import AnthropicModel
 from .models.openai import OpenAIModel
 
 _PROVIDER_DEFAULTS = {
-    "anthropic": "claude-sonnet-5",
-    "openai": "gpt-4o-mini",
-    "groq": "llama-4-scout",
-    "gemini": "gemini-2.5-flash",
+    "anthropic": "claude-sonnet-5-5",
+    "openai": "gpt-6-luna",
+    "groq": "openai/gpt-oss-120b",
+    "gemini": "gemini-3.8-flash",
     "mistral": "mistral-large-latest",
     "cohere": "command-a-plus-05-2026",
     "ollama": "llama3.3",
-    "bedrock": "anthropic.claude-sonnet-5",
-    "xai": "grok-4",
+    "bedrock": "anthropic.claude-sonnet-5-5",
+    "xai": "grok-4.7",
 }
 
 _ALL_PROVIDERS = list(_PROVIDER_DEFAULTS.keys())
