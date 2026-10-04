@@ -19,7 +19,7 @@ Most agent frameworks are wrappers around wrappers. Kogni·OS is written from sc
 - ReAct loop in ~800 lines of core code
 - Zero heavy dependencies
 - Built-in streaming, async, and structured output
-- 9 providers: Anthropic, OpenAI, Groq, Gemini, Mistral, Cohere, Ollama, Bedrock, xAI
+- 12 providers: Anthropic, OpenAI, Azure OpenAI, Gemini, Vertex AI, Bedrock, Groq, Mistral, Cohere, Together, xAI, Ollama
 
 ---
 
@@ -349,7 +349,7 @@ All providers share the same `BaseModel` interface; one line to swap.
 
 ---
 
-## ModelChain — multi-provider failover
+## ModelChain: multi-provider failover
 
 Chain providers so a 429 on Groq auto-falls over to Gemini, Together, xAI, or Anthropic:
 
@@ -358,7 +358,7 @@ from kognios import Agent, free_tier_chain
 
 # Reads GROQ_API_KEY[_N], GEMINI_API_KEY[_N], TOGETHER_API_KEY[_N],
 # XAI_API_KEY[_N], ANTHROPIC_API_KEY[_N] from environment.
-# One model instance per (key, model) pair — independent cooldown buckets.
+# One model instance per (key, model) pair, each with its own cooldown bucket.
 chain = free_tier_chain(preferred="groq")
 agent = Agent(model=chain, tools=[...])
 ```
