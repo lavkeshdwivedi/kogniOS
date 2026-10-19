@@ -45,7 +45,6 @@ runs:
         python - <<'PY'
         from kognios import ModelChain, free_tier_chain
         from kognios.guardrails.voice import BANNED_PHRASES, check_excerpt, find_banned_phrases
-        from kognios.models.chain import _collect_keys
         import kognios.models.anthropic, kognios.models.gemini, kognios.models.groq
         from importlib.metadata import version
         print("kognios", version("kognios"), "ready")

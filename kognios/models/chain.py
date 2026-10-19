@@ -63,11 +63,12 @@ def _strip_think(text: str) -> str:
 # ── Multi-key collector ───────────────────────────────────────────────────────
 
 
-def _collect_keys(base_env: str, max_keys: int = 10) -> list[str]:
+def collect_keys(base_env: str, max_keys: int = 10) -> list[str]:
     """Return all keys for a provider from PROVIDER_KEY, PROVIDER_KEY_2, ...
 
-    Stops at the first missing slot. De-duplicates so the same key pasted
-    twice (with or without whitespace) only appears once.
+    Scans every slot up to *max_keys*, so a gap such as a missing _2 does not
+    hide _3. De-duplicates so the same key pasted twice (with or without
+    whitespace) only appears once.
     """
     out: list[str] = []
     seen: set[str] = set()
@@ -81,6 +82,10 @@ def _collect_keys(base_env: str, max_keys: int = 10) -> list[str]:
             out.append(val)
             seen.add(val)
     return out
+
+
+# Kept so code written against the old private name keeps working.
+_collect_keys = collect_keys
 
 
 # ── ModelChain ────────────────────────────────────────────────────────────────
@@ -421,23 +426,23 @@ def free_tier_chain(
     models: list[BaseModel] = []
     for provider in provider_order:
         if provider == "groq":
-            for key in _collect_keys("GROQ_API_KEY"):
+            for key in collect_keys("GROQ_API_KEY"):
                 for name in groq_pool:
                     models.append(GroqModel(model=name, api_key=key, **model_kwargs))
         elif provider == "gemini":
-            for key in _collect_keys("GEMINI_API_KEY"):
+            for key in collect_keys("GEMINI_API_KEY"):
                 for name in gemini_pool:
                     models.append(GeminiModel(model=name, api_key=key, **model_kwargs))
         elif provider == "together":
-            for key in _collect_keys("TOGETHER_API_KEY"):
+            for key in collect_keys("TOGETHER_API_KEY"):
                 for name in together_pool:
                     models.append(TogetherModel(model=name, api_key=key, **model_kwargs))
         elif provider == "xai":
-            for key in _collect_keys("XAI_API_KEY"):
+            for key in collect_keys("XAI_API_KEY"):
                 for name in xai_pool:
                     models.append(XAIModel(model=name, api_key=key, **model_kwargs))
         elif provider == "anthropic":
-            for key in _collect_keys("ANTHROPIC_API_KEY"):
+            for key in collect_keys("ANTHROPIC_API_KEY"):
                 for name in anthropic_pool:
                     models.append(AnthropicModel(model=name, api_key=key, **model_kwargs))
 

@@ -15,6 +15,8 @@ CONSUMER_IMPORTS = [
     ("kognios.guardrails.voice", "check_excerpt"),
     ("kognios.guardrails.voice", "find_banned_phrases"),
     ("kognios.models.chain", "free_tier_chain"),
+    ("kognios", "collect_keys"),
+    ("kognios.models.chain", "collect_keys"),
     ("kognios.models.chain", "_collect_keys"),
     ("kognios.models.groq", "GroqModel"),
     ("kognios.models.gemini", "GeminiModel"),
