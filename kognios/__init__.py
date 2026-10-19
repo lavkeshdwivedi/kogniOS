@@ -22,7 +22,7 @@ from .models.mistral import MistralModel
 from .models.cohere import CohereModel
 from .models.bedrock import BedrockModel
 from .models.xai import XAIModel
-from .models.chain import ModelChain, free_tier_chain
+from .models.chain import ModelChain, collect_keys, free_tier_chain
 from .models.together import TogetherModel
 from .models.azure import AzureOpenAIModel
 from .models.vertex import VertexAIModel
@@ -51,6 +51,7 @@ __all__ = [
     "BedrockModel",
     "XAIModel",
     "ModelChain",
+    "collect_keys",
     "free_tier_chain",
     "TogetherModel",
     "AzureOpenAIModel",
