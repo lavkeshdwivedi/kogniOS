@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.6.0] - 2026-10-19
+
 ### Added
 - **Composite setup action** at `.github/actions/setup`. Downstream workflows can use `lavkeshdwivedi/kogniOS/.github/actions/setup@v1` instead of hand-typing `pip install kognios`. It installs Python and a pinned kognios spec, then imports the public API consumers rely on, so a missing or broken install fails in that step.
 - **`collect_keys`** is now public (`from kognios import collect_keys`). It reads `PROVIDER_KEY`, `PROVIDER_KEY_2`, ... from the environment, skips gaps and de-duplicates. Downstream code was importing the private `_collect_keys`, which stays as an alias.
