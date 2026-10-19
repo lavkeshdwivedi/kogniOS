@@ -1,0 +1,52 @@
+name: Set up kognios
+description: Install Python and a known-good kognios release, then verify the public API consumers import.
+
+inputs:
+  python-version:
+    description: Python version to install
+    required: false
+    default: "3.12"
+  kognios-spec:
+    description: pip requirement for kognios (for example "kognios>=1.5.1,<2" or "kognios==1.5.1")
+    required: false
+    default: "kognios>=1.5.1,<2"
+  extras:
+    description: Extra packages to install in the same pip call (space separated)
+    required: false
+    default: ""
+  cache:
+    description: Enable the pip cache (needs a requirements file or pyproject.toml in the caller repo)
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
+
+    - name: Install kognios
+      shell: bash
+      env:
+        KOGNIOS_SPEC: ${{ inputs.kognios-spec }}
+        EXTRAS: ${{ inputs.extras }}
+      run: |
+        python -m pip install --upgrade pip
+        # Word splitting on EXTRAS is intended: it is a space separated package list.
+        # shellcheck disable=SC2086
+        python -m pip install "$KOGNIOS_SPEC" $EXTRAS
+
+    - name: Verify consumer API
+      shell: bash
+      run: |
+        python - <<'PY'
+        from kognios import ModelChain, free_tier_chain
+        from kognios.guardrails.voice import BANNED_PHRASES, check_excerpt, find_banned_phrases
+        from kognios.models.chain import _collect_keys
+        import kognios.models.anthropic, kognios.models.gemini, kognios.models.groq
+        from importlib.metadata import version
+        print("kognios", version("kognios"), "ready")
+        PY

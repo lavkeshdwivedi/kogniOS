@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Composite setup action** at `.github/actions/setup`. Downstream workflows can use `lavkeshdwivedi/kogniOS/.github/actions/setup@v1` instead of hand-typing `pip install kognios`. It installs Python and a pinned kognios spec, then imports the public API consumers rely on, so a missing or broken install fails in that step.
+- `tests/test_consumer_api.py` guards the names that downstream repos import, so an API break fails kognios CI before it reaches a scheduled job elsewhere.
+
 ---
 
 ## [1.5.1] - 2026-10-02

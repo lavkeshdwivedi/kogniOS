@@ -33,3 +33,12 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
+
+  setup-action:
+    name: Setup action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the composite action
+        uses: ./.github/actions/setup
