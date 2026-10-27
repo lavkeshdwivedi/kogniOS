@@ -486,7 +486,9 @@ agent.resume("sprint-42", {call_id: False})                      # reject, the m
 agent.resume("sprint-42", {call_id: {"input": {"id": "s-10"}}})  # approve with edited arguments
 ```
 
-A paused run holds back the whole model turn, including tool calls that need no approval, so resuming never repeats a side effect. `store.history(run_id)` returns every saved step, which makes a run easy to inspect after the fact. Runs without a `run_id` behave exactly as before. This first version covers the sync `run`; async and streaming come next.
+A paused run holds back the whole model turn, including tool calls that need no approval, so resuming never repeats a side effect. `store.history(run_id)` returns every saved step, which makes a run easy to inspect after the fact. Runs without a `run_id` behave exactly as before.
+
+The same works async. `await agent.arun(msg, run_id=...)` and `await agent.aresume(run_id, decisions)` share the sync semantics, and `agent.astream_events(msg, run_id=...)` yields dict events (`text`, `tool_call`, `tool_result`, `approval_required`, `done`) that map straight onto server-sent events. A gated call ends the stream with `approval_required`; call again with the same `run_id` and `decisions=` to continue.
 
 ## Evaluation
 

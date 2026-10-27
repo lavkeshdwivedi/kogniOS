@@ -106,23 +106,24 @@ class ToolRegistry:
             return f"Error: {exc}"
 
     async def acall(self, name: str, arguments: dict, timeout: float | None = None) -> str:
-        """Async-aware tool call — awaits coroutine tools (e.g. MCP tools)."""
+        """Async-aware tool call, awaits coroutine tools (e.g. MCP tools)."""
         fn = self._tools.get(name)
         if fn is None:
             return f"Error: unknown tool '{name}'"
         try:
-            result = fn(**arguments)
-            if asyncio.iscoroutine(result):
-                coro = result
-                if timeout is not None:
-                    result = await asyncio.wait_for(coro, timeout=timeout)
-                else:
-                    result = await coro
-            elif timeout is not None:
-                loop = asyncio.get_event_loop()
+            if timeout is None:
+                result = fn(**arguments)
+            else:
+                # run the call once, off the event loop, so a sync tool never executes twice
+                loop = asyncio.get_running_loop()
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     fut = loop.run_in_executor(executor, lambda: fn(**arguments))
                     result = await asyncio.wait_for(fut, timeout=timeout)
+            if asyncio.iscoroutine(result):
+                if timeout is not None:
+                    result = await asyncio.wait_for(result, timeout=timeout)
+                else:
+                    result = await result
             return str(result)
         except asyncio.TimeoutError:
             return f"Error: tool '{name}' timed out after {timeout}s"
