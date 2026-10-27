@@ -12,7 +12,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Approval gate**: `Agent(require_approval={"tool_name"})` pauses a run before any listed tool executes and raises `ApprovalRequired`. `agent.resume(run_id, decisions)` approves, rejects (the model is told), or approves with edited arguments. A paused turn holds back all of its tool calls, so a resume cannot repeat a side effect.
 - New `agent_checkpoints` table, created automatically by the existing SQLite migration.
 
-Sync `run` only in this release; `arun`, `stream` and `astream` come next.
+- **Async parity**: `arun(message, run_id=...)` and `aresume(run_id, decisions)` have the same checkpoint, resume and approval semantics as the sync methods, and share one decision path. `astream_events(message, run_id=..., decisions=...)` streams a run as dict events (`text`, `tool_call`, `tool_result`, `approval_required`, `done`) and is checkpointed. `astream` is unchanged and still yields text.
+
+### Fixed
+- `ToolRegistry.acall` ran a sync tool twice when a timeout was set (once to test for a coroutine, once in a thread), duplicating side effects on every async tool call. It now runs the call once.
+
+Not yet checkpointed: `plan_and_run` and `aplan_and_run`, `stream`, and `Team`.
 
 ---
 
