@@ -31,6 +31,15 @@ def run_migrations(conn: sqlite3.Connection) -> None:
 
         CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks
             USING fts5(chunk, source UNINDEXED);
+
+        CREATE TABLE IF NOT EXISTS agent_checkpoints (
+            run_id     TEXT NOT NULL,
+            seq        INTEGER NOT NULL,
+            status     TEXT NOT NULL,
+            state      TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, seq)
+        );
     """)
     # Add embedding column if it doesn't exist yet
     cols = [r[1] for r in conn.execute("PRAGMA table_info(long_term_memory)").fetchall()]

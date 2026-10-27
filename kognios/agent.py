@@ -5,6 +5,18 @@ import concurrent.futures
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import TypeVar
 
+import json
+from collections.abc import Iterable
+from datetime import datetime, timezone
+
+from .checkpoint import (
+    DONE,
+    INTERRUPTED,
+    RUNNING,
+    ApprovalRequired,
+    Checkpoint,
+    CheckpointStore,
+)
 from .guardrails.base import GuardrailError  # noqa: F401 – re-exported for convenience
 from .models.base import BaseModel
 from .tools.registry import ToolRegistry
@@ -30,6 +42,8 @@ class Agent:
         tool_timeout: float = 30.0,
         max_context_tokens: int | None = None,
         max_tool_errors: int = 3,
+        checkpointer: CheckpointStore | None = None,
+        require_approval: Iterable[str] | None = None,
     ):
         self.model = model
         self.registry = ToolRegistry(tools or [])
@@ -46,6 +60,10 @@ class Agent:
         self.tool_timeout = tool_timeout
         self.max_context_tokens = max_context_tokens
         self.max_tool_errors = max_tool_errors
+        self.checkpointer = checkpointer
+        self.require_approval = frozenset(require_approval or ())
+        if self.require_approval and checkpointer is None:
+            raise ValueError("require_approval needs a checkpointer so a paused run can be resumed")
 
     # ── Guardrail helpers ────────────────────────────────────────────────────
 
@@ -92,65 +110,196 @@ class Agent:
 
     # ── Sync ────────────────────────────────────────────────────────────────
 
-    def run(self, message: str, output_type: type[T] | None = None) -> str | T:
+    def run(
+        self,
+        message: str,
+        output_type: type[T] | None = None,
+        run_id: str | None = None,
+    ) -> str | T:
+        """Run the agent to an answer.
+
+        With a checkpointer and a run_id, every step is saved. Calling run again with the same
+        run_id continues where the last step stopped, and tools named in require_approval
+        pause the run with ApprovalRequired until agent.resume() supplies a decision.
+        """
+        cp = self._load_run(run_id)
+        if cp is not None:
+            return self._continue(cp, output_type, None)
+        if self.require_approval and not run_id:
+            raise ValueError("require_approval needs a run_id so the run can be resumed")
         self.last_usage = {}
         system = self._build_system(message)
         message = self._apply_input_guardrails(message)
         messages = self._build_messages(message)
+        state = Checkpoint(
+            run_id=run_id or "", step=0, status=RUNNING, message=message, messages=messages
+        )
+        self._checkpoint(state, RUNNING)
+        return self._run_loop(state, system, output_type, None)
+
+    def resume(
+        self,
+        run_id: str,
+        decisions: dict[str, bool | dict] | None = None,
+        output_type: type[T] | None = None,
+    ) -> str | T:
+        """Continue a saved run. decisions maps a tool call id to True (approve), False
+        (reject) or {"approve": bool, "input": {...}, "reason": str} to edit the arguments."""
+        cp = self._load_run(run_id)
+        if cp is None:
+            raise KeyError(f"No saved run '{run_id}'")
+        return self._continue(cp, output_type, decisions)
+
+    def _load_run(self, run_id: str | None) -> Checkpoint | None:
+        if run_id is None:
+            return None
+        if self.checkpointer is None:
+            raise ValueError("run_id needs an Agent(checkpointer=...)")
+        return self.checkpointer.load(run_id)
+
+    def _continue(
+        self, cp: Checkpoint, output_type: type[T] | None, decisions: dict[str, bool | dict] | None
+    ) -> str | T:
+        if cp.status == DONE and cp.result is not None:
+            if output_type is not None:
+                return _validate(output_type, json.loads(cp.result))
+            return cp.result
+        self.last_usage = dict(cp.usage)
+        return self._run_loop(cp, self._build_system(cp.message), output_type, decisions)
+
+    def _checkpoint(self, state: Checkpoint, status: str) -> None:
+        if self.checkpointer is None or not state.run_id:
+            return
+        state.status = status
+        state.step += 1
+        state.usage = dict(self.last_usage)
+        state.created_at = datetime.now(timezone.utc).isoformat()
+        self.checkpointer.save(state)
+
+    def _run_loop(
+        self,
+        state: Checkpoint,
+        system: str,
+        output_type: type[T] | None,
+        decisions: dict[str, bool | dict] | None,
+    ) -> str | T:
         tools = self.registry.schemas() if self.registry else None
-        _tool_error_counts: dict[str, int] = {}
+        messages = state.messages
+        held = state.pending_calls or None  # tool calls saved before the run was paused
 
-        for _ in range(self.max_iterations):
-            messages = self._trim_messages(messages)
-            if self.tracer:
-                with self.tracer.span(
-                    "llm.complete", model=getattr(self.model, "model", "unknown")
-                ):
-                    response = self.model.complete(messages, tools=tools, system=system)
+        while state.iterations_used < self.max_iterations:
+            if held is not None:
+                calls, held = held, None
             else:
-                response = self.model.complete(messages, tools=tools, system=system)
-
-            self.last_usage = {
-                k: self.last_usage.get(k, 0) + response.usage.get(k, 0)
-                for k in set(self.last_usage) | set(response.usage)
-            }
-
-            if response.tool_calls:
-                messages.append({"role": "assistant", "content": self._encode_tool_calls(response)})
-                if len(response.tool_calls) > 1:
-                    with concurrent.futures.ThreadPoolExecutor() as pool:
-                        results = list(pool.map(self._call_tool_sync, response.tool_calls))
+                messages = self._trim_messages(messages)
+                state.messages = messages
+                if self.tracer:
+                    with self.tracer.span(
+                        "llm.complete", model=getattr(self.model, "model", "unknown")
+                    ):
+                        response = self.model.complete(messages, tools=tools, system=system)
                 else:
-                    results = [self._call_tool_sync(tc) for tc in response.tool_calls]
-                for tc, result in zip(response.tool_calls, results):
-                    self._check_tool_errors(tc, result, _tool_error_counts)
-                    messages.append(self._tool_result_message(tc, result))
-                continue
+                    response = self.model.complete(messages, tools=tools, system=system)
+                state.iterations_used += 1
 
-            if response.content:
-                if output_type is not None:
-                    schema = _get_schema(output_type)
-                    raw = self.model.structured_complete(
-                        messages
-                        + [
-                            {"role": "user", "content": "Return your answer as the specified JSON."}
-                        ],
-                        schema=schema,
-                        system=system,
-                    )
-                    return _validate(output_type, raw)
+                self.last_usage = {
+                    k: self.last_usage.get(k, 0) + response.usage.get(k, 0)
+                    for k in set(self.last_usage) | set(response.usage)
+                }
 
-                result = self._apply_output_guardrails(response.content)
-                if self.memory and hasattr(self.memory, "append"):
-                    self.memory.append("user", message)
-                    self.memory.append("assistant", result)
-                return result
+                if not response.tool_calls:
+                    if not response.content:
+                        break
+                    if output_type is not None:
+                        schema = _get_schema(output_type)
+                        raw = self.model.structured_complete(
+                            messages
+                            + [
+                                {
+                                    "role": "user",
+                                    "content": "Return your answer as the specified JSON.",
+                                }
+                            ],
+                            schema=schema,
+                            system=system,
+                        )
+                        state.result = json.dumps(raw)
+                        self._checkpoint(state, DONE)
+                        return _validate(output_type, raw)
 
-            break
+                    result = self._apply_output_guardrails(response.content)
+                    if self.memory and hasattr(self.memory, "append"):
+                        self.memory.append("user", state.message)
+                        self.memory.append("assistant", result)
+                    state.result = result
+                    self._checkpoint(state, DONE)
+                    return result
+
+                messages.append({"role": "assistant", "content": self._encode_tool_calls(response)})
+                calls = response.tool_calls
+
+            results = self._execute_calls(state, calls, decisions)
+            decisions = None
+            for tc, result in zip(calls, results):
+                self._check_tool_errors(tc, result, state.tool_error_counts)
+                messages.append(self._tool_result_message(tc, result))
+            state.pending_calls, state.awaiting = [], []
+            self._checkpoint(state, RUNNING)
 
         raise RuntimeError(
             f"Agent did not produce a response after {self.max_iterations} iterations"
         )
+
+    def _execute_calls(
+        self,
+        state: Checkpoint,
+        calls: list[dict],
+        decisions: dict[str, bool | dict] | None,
+    ) -> list[str]:
+        """Run one model turn's tool calls, holding back any that need a reviewer first."""
+        decided = decisions or {}
+        gated = [tc for tc in calls if tc["name"] in self.require_approval]
+        awaiting = [tc["id"] for tc in gated if tc["id"] not in decided]
+        if awaiting:
+            # nothing from this turn has run yet, so resuming cannot repeat a side effect
+            state.pending_calls = calls
+            state.awaiting = awaiting
+            self._checkpoint(state, INTERRUPTED)
+            raise ApprovalRequired(state.run_id, [tc for tc in calls if tc["id"] in awaiting])
+
+        results: dict[str, str] = {}
+        to_run: list[dict] = []
+        for tc in calls:
+            d = decided.get(tc["id"]) if tc["name"] in self.require_approval else None
+            if d is None:
+                to_run.append(tc)
+                continue
+            approve = d if isinstance(d, bool) else bool(d.get("approve", True))
+            if not approve:
+                reason = "" if isinstance(d, bool) else d.get("reason", "")
+                results[tc["id"]] = f"Tool call '{tc['name']}' was rejected by the reviewer." + (
+                    f" Reason: {reason}" if reason else ""
+                )
+                continue
+            edited = None if isinstance(d, bool) else d.get("input")
+            if edited is not None:
+                tc = {**tc, "input": edited}
+                self._record_edit(state, tc)
+            to_run.append(tc)
+
+        if len(to_run) > 1:
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                outputs = list(pool.map(self._call_tool_sync, to_run))
+        else:
+            outputs = [self._call_tool_sync(tc) for tc in to_run]
+        results.update({tc["id"]: out for tc, out in zip(to_run, outputs)})
+        return [results[tc["id"]] for tc in calls]
+
+    def _record_edit(self, state: Checkpoint, tc: dict) -> None:
+        # keep the saved assistant turn honest: the model should see what actually ran
+        for block in state.messages[-1].get("content", []):
+            if isinstance(block, dict) and block.get("id") == tc["id"]:
+                block["input"] = tc["input"]
 
     def stream(self, message: str) -> Iterator[str]:
         system = self._build_system(message)

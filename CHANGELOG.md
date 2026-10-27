@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Checkpoints and resume**: `Agent(checkpointer=...)` with `run(message, run_id=...)` saves the run after every step (`MemoryCheckpointStore`, or `SQLiteCheckpointStore` on the same SQLite file as memory and knowledge). Calling `run` again with the same `run_id` continues from the last saved step, returns the saved result if the run finished, and never re-runs a tool that already ran. `store.history(run_id)` returns every step.
+- **Approval gate**: `Agent(require_approval={"tool_name"})` pauses a run before any listed tool executes and raises `ApprovalRequired`. `agent.resume(run_id, decisions)` approves, rejects (the model is told), or approves with edited arguments. A paused turn holds back all of its tool calls, so a resume cannot repeat a side effect.
+- New `agent_checkpoints` table, created automatically by the existing SQLite migration.
+
+Sync `run` only in this release; `arun`, `stream` and `astream` come next.
+
 ---
 
 ## [1.6.0] - 2026-10-19

@@ -30,6 +30,12 @@ from .mcp import MCPClient
 from .eval import AgentEvaluator, EvalCase, EvalReport
 from .guardrails import GuardrailError, block_keywords, max_length, pii_scrubber
 from .tracing import Tracer
+from .checkpoint import (
+    ApprovalRequired,
+    Checkpoint,
+    MemoryCheckpointStore,
+    SQLiteCheckpointStore,
+)
 from .plugins import load_plugins, discover_all, list_plugins
 
 __all__ = [
@@ -66,6 +72,10 @@ __all__ = [
     "max_length",
     "pii_scrubber",
     "Tracer",
+    "ApprovalRequired",
+    "Checkpoint",
+    "MemoryCheckpointStore",
+    "SQLiteCheckpointStore",
     "load_plugins",
     "discover_all",
     "list_plugins",

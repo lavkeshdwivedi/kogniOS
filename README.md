@@ -460,6 +460,34 @@ curl -X POST http://localhost:8000/run \
 
 ---
 
+## Checkpoints and approvals
+
+Give an agent a checkpointer and a `run_id` and every step is saved. If the process dies, calling `run` again with the same id continues from the last saved step, and a tool that already ran does not run twice.
+
+```python
+from kognios import Agent, SQLiteCheckpointStore, ApprovalRequired
+
+agent = Agent(
+    model=model,
+    tools=[create_story, delete_story],
+    checkpointer=SQLiteCheckpointStore("kognios.db"),
+    require_approval={"delete_story"},  # these tools pause the run until a person decides
+)
+
+try:
+    agent.run("Clean up the sprint board", run_id="sprint-42")
+except ApprovalRequired as pause:
+    for call in pause.pending:
+        print(call["id"], call["name"], call["input"])
+
+# later, possibly from another process
+agent.resume("sprint-42", {call_id: True})                       # approve
+agent.resume("sprint-42", {call_id: False})                      # reject, the model is told
+agent.resume("sprint-42", {call_id: {"input": {"id": "s-10"}}})  # approve with edited arguments
+```
+
+A paused run holds back the whole model turn, including tool calls that need no approval, so resuming never repeats a side effect. `store.history(run_id)` returns every saved step, which makes a run easy to inspect after the fact. Runs without a `run_id` behave exactly as before. This first version covers the sync `run`; async and streaming come next.
+
 ## Evaluation
 
 Run your agent against a test dataset and measure quality:
