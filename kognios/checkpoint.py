@@ -34,6 +34,10 @@ class Checkpoint:
     usage: dict[str, int] = field(default_factory=dict)
     iterations_used: int = 0
     result: str | None = None
+    # "run" is an agent loop. "plan", "route" and "stage" are records written by
+    # plan_and_run and Team so a multi-agent flow can resume without redoing finished work
+    kind: str = "run"
+    plan: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -106,3 +110,31 @@ class SQLiteCheckpointStore:
             "SELECT state FROM agent_checkpoints WHERE run_id = ? ORDER BY seq", (run_id,)
         ).fetchall()
         return [Checkpoint(**json.loads(r[0])) for r in rows]
+
+
+def save_record(
+    store: CheckpointStore,
+    run_id: str,
+    kind: str,
+    message: str,
+    result: str | None = None,
+    plan: str | None = None,
+) -> None:
+    """Persist a finished bookkeeping record (a plan, a routing decision, a plan_and_run result)."""
+    store.save(
+        Checkpoint(
+            run_id=run_id,
+            step=0,
+            status=DONE,
+            message=message,
+            messages=[],
+            result=result,
+            kind=kind,
+            plan=plan,
+        )
+    )
+
+
+def load_record(store: CheckpointStore, run_id: str) -> Checkpoint | None:
+    """Latest saved record for run_id, or None."""
+    return store.load(run_id)

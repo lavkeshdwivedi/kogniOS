@@ -16,6 +16,7 @@ from .checkpoint import (
     ApprovalRequired,
     Checkpoint,
     CheckpointStore,
+    save_record,
 )
 from .guardrails.base import GuardrailError  # noqa: F401 – re-exported for convenience
 from .models.base import BaseModel
@@ -175,6 +176,25 @@ class Agent:
         state.usage = dict(self.last_usage)
         state.created_at = datetime.now(timezone.utc).isoformat()
         self.checkpointer.save(state)
+
+    async def _acheckpoint(self, state: Checkpoint, status: str) -> None:
+        # the SQLite write runs in a worker thread so the event loop keeps serving other tasks
+        if self.checkpointer is None or not state.run_id:
+            return
+        await asyncio.to_thread(self._checkpoint, state, status)
+
+    def _run_or_resume(self, message: str, run_id: str | None, decisions) -> str:
+        """run() for a fresh or crashed run, resume() when it is paused and decisions came in."""
+        cp = self._load_run(run_id)
+        if cp is not None and cp.status == INTERRUPTED and decisions:
+            return self.resume(run_id, decisions)  # type: ignore[arg-type,return-value]
+        return self.run(message, run_id=run_id)  # type: ignore[return-value]
+
+    async def _arun_or_resume(self, message: str, run_id: str | None, decisions) -> str:
+        cp = await asyncio.to_thread(self._load_run, run_id)
+        if cp is not None and cp.status == INTERRUPTED and decisions:
+            return await self.aresume(run_id, decisions)  # type: ignore[arg-type,return-value]
+        return await self.arun(message, run_id=run_id)  # type: ignore[return-value]
 
     def _run_loop(
         self,
@@ -362,7 +382,7 @@ class Agent:
         run_id: str | None = None,
     ) -> str | T:
         """Async run with the same checkpoint, resume and approval semantics as run()."""
-        cp = self._load_run(run_id)
+        cp = await asyncio.to_thread(self._load_run, run_id)
         if cp is not None:
             return await self._acontinue(cp, output_type, None)
         if self.require_approval and not run_id:
@@ -374,7 +394,7 @@ class Agent:
         state = Checkpoint(
             run_id=run_id or "", step=0, status=RUNNING, message=message, messages=messages
         )
-        self._checkpoint(state, RUNNING)
+        await self._acheckpoint(state, RUNNING)
         return await self._arun_loop(state, system, output_type, None)
 
     async def aresume(
@@ -384,7 +404,7 @@ class Agent:
         output_type: type[T] | None = None,
     ) -> str | T:
         """Async resume(). Same decision format."""
-        cp = self._load_run(run_id)
+        cp = await asyncio.to_thread(self._load_run, run_id)
         if cp is None:
             raise KeyError(f"No saved run '{run_id}'")
         return await self._acontinue(cp, output_type, decisions)
@@ -447,7 +467,7 @@ class Agent:
                             system=system,
                         )
                         state.result = json.dumps(raw)
-                        self._checkpoint(state, DONE)
+                        await self._acheckpoint(state, DONE)
                         return _validate(output_type, raw)
 
                     result = self._apply_output_guardrails(response.content)
@@ -455,7 +475,7 @@ class Agent:
                         self.memory.append("user", state.message)
                         self.memory.append("assistant", result)
                     state.result = result
-                    self._checkpoint(state, DONE)
+                    await self._acheckpoint(state, DONE)
                     return result
 
                 messages.append({"role": "assistant", "content": self._encode_tool_calls(response)})
@@ -467,7 +487,7 @@ class Agent:
                 self._check_tool_errors(tc, result, state.tool_error_counts)
                 messages.append(self._tool_result_message(tc, result))
             state.pending_calls, state.awaiting = [], []
-            self._checkpoint(state, RUNNING)
+            await self._acheckpoint(state, RUNNING)
 
         raise RuntimeError(
             f"Agent did not produce a response after {self.max_iterations} iterations"
@@ -479,7 +499,7 @@ class Agent:
         calls: list[dict],
         decisions: dict[str, bool | dict] | None,
     ) -> list[str]:
-        results, to_run = self._resolve_calls(state, calls, decisions)
+        results, to_run = await asyncio.to_thread(self._resolve_calls, state, calls, decisions)
         if self.tracer:
             outputs = []
             for tc in to_run:
@@ -561,7 +581,7 @@ class Agent:
         and still yields text only. Output guardrails cannot rewrite text already streamed, so
         they are not applied here.
         """
-        cp = self._load_run(run_id)
+        cp = await asyncio.to_thread(self._load_run, run_id)
         if cp is not None and cp.status == DONE and cp.result is not None:
             yield {"type": "done", "run_id": run_id, "result": cp.result}
             return
@@ -578,7 +598,7 @@ class Agent:
                 message=message,
                 messages=self._build_messages(message),
             )
-            self._checkpoint(state, RUNNING)
+            await self._acheckpoint(state, RUNNING)
         else:
             state = cp
             self.last_usage = dict(cp.usage)
@@ -609,7 +629,7 @@ class Agent:
                         self.memory.append("user", state.message)
                         self.memory.append("assistant", text)
                     state.result = text
-                    self._checkpoint(state, DONE)
+                    await self._acheckpoint(state, DONE)
                     yield {"type": "done", "run_id": run_id, "result": text}
                     return
                 messages.append(
@@ -633,7 +653,7 @@ class Agent:
                 self._check_tool_errors(tc, result, state.tool_error_counts)
                 messages.append(self._tool_result_message(tc, result))
             state.pending_calls, state.awaiting = [], []
-            self._checkpoint(state, RUNNING)
+            await self._acheckpoint(state, RUNNING)
 
         raise RuntimeError(
             f"Agent did not produce a response after {self.max_iterations} iterations"
@@ -641,81 +661,128 @@ class Agent:
 
     # ── Multi-step planning ──────────────────────────────────────────────────
 
-    def plan_and_run(self, goal: str) -> str:
-        """Generate a multi-step plan then execute each step, returning the final answer."""
-        # Step 1: generate plan
-        plan_prompt = (
+    @staticmethod
+    def _plan_prompt(goal: str) -> str:
+        return (
             f"Break the following goal into a numbered list of concrete steps (max 5). "
             f"Output ONLY the numbered list, no prose before or after.\n\nGoal: {goal}"
         )
-        plan_messages = [{"role": "user", "content": plan_prompt}]
-        plan_response = self.model.complete(plan_messages, system=self.instructions)
-        plan_text = plan_response.content.strip()
 
-        # Parse steps
+    @staticmethod
+    def _parse_steps(plan_text: str) -> list[str]:
         steps = []
         for line in plan_text.splitlines():
             line = line.strip()
             if line and (line[0].isdigit() or line.startswith("-")):
-                # Strip leading "1." or "1)" or "-"
+                # strip a leading "1." or "1)" or "-"
                 step = line.lstrip("0123456789.-) ").strip()
                 if step:
                     steps.append(step)
+        return steps
+
+    def _finished_plan(self, run_id: str | None) -> Checkpoint | None:
+        """The saved top-level record when this plan_and_run already finished."""
+        top = self._load_run(run_id)
+        if top is None:
+            return None
+        if top.kind != "plan":
+            raise ValueError(f"run_id '{run_id}' belongs to a plain run, not a plan_and_run")
+        return top
+
+    def plan_and_run(
+        self,
+        goal: str,
+        run_id: str | None = None,
+        decisions: dict[str, bool | dict] | None = None,
+    ) -> str:
+        """Generate a multi-step plan then execute each step, returning the final answer.
+
+        With a checkpointer and a run_id the plan and every step are saved under
+        ``<run_id>/plan``, ``<run_id>/step-N`` and ``<run_id>/final``. Calling again with the
+        same run_id skips finished work and continues the step that stopped. A step that
+        paused for approval raises ApprovalRequired, and the next call passes ``decisions``.
+        """
+
+        def sub(name: str) -> str | None:
+            return f"{run_id}/{name}" if run_id else None
+
+        top = self._finished_plan(run_id)
+        if top is not None and top.result is not None:
+            return top.result
+        saved_plan = self._load_run(sub("plan"))
+        if saved_plan is not None and saved_plan.plan is not None:
+            plan_text = saved_plan.plan
+        else:
+            plan_messages = [{"role": "user", "content": self._plan_prompt(goal)}]
+            plan_text = self.model.complete(plan_messages, system=self.instructions).content.strip()
+            if run_id and self.checkpointer is not None:
+                save_record(self.checkpointer, f"{run_id}/plan", "plan", goal, plan=plan_text)
+        steps = self._parse_steps(plan_text)
+
+        if not steps:  # fallback: run as a single step
+            answer = self._run_or_resume(goal, sub("single"), decisions)
+        else:
+            context_parts: list[str] = [f"Overall goal: {goal}", f"Plan:\n{plan_text}", ""]
+            for i, step in enumerate(steps, 1):
+                context = "\n".join(context_parts)
+                step_prompt = f"{context}\nNow execute step {i}: {step}"
+                last = self._run_or_resume(step_prompt, sub(f"step-{i}"), decisions)
+                context_parts.append(f"Step {i} result: {last}")
+            context = "\n".join(context_parts)
+            final_prompt = (
+                f"{context}\n\nNow provide a final consolidated answer to the original goal: {goal}"
+            )
+            answer = self._run_or_resume(final_prompt, sub("final"), decisions)
+        if run_id and self.checkpointer is not None:
+            save_record(self.checkpointer, run_id, "plan", goal, result=answer, plan=plan_text)
+        return answer
+
+    async def aplan_and_run(
+        self,
+        goal: str,
+        run_id: str | None = None,
+        decisions: dict[str, bool | dict] | None = None,
+    ) -> str:
+        """Async plan_and_run() with the same checkpoint, resume and approval behavior."""
+
+        def sub(name: str) -> str | None:
+            return f"{run_id}/{name}" if run_id else None
+
+        top = await asyncio.to_thread(self._finished_plan, run_id)
+        if top is not None and top.result is not None:
+            return top.result
+        saved_plan = await asyncio.to_thread(self._load_run, sub("plan"))
+        if saved_plan is not None and saved_plan.plan is not None:
+            plan_text = saved_plan.plan
+        else:
+            plan_messages = [{"role": "user", "content": self._plan_prompt(goal)}]
+            plan_response = await self.model.acomplete(plan_messages, system=self.instructions)
+            plan_text = plan_response.content.strip()
+            if run_id and self.checkpointer is not None:
+                await asyncio.to_thread(
+                    save_record, self.checkpointer, f"{run_id}/plan", "plan", goal, None, plan_text
+                )
+        steps = self._parse_steps(plan_text)
 
         if not steps:
-            # Fallback: run as a single step
-            return self.run(goal)
-
-        # Step 2: execute each step with accumulated context
-        context_parts: list[str] = [f"Overall goal: {goal}", f"Plan:\n{plan_text}", ""]
-        last_result = ""
-        for i, step in enumerate(steps, 1):
+            answer = await self._arun_or_resume(goal, sub("single"), decisions)
+        else:
+            context_parts: list[str] = [f"Overall goal: {goal}", f"Plan:\n{plan_text}", ""]
+            for i, step in enumerate(steps, 1):
+                context = "\n".join(context_parts)
+                step_prompt = f"{context}\nNow execute step {i}: {step}"
+                last = await self._arun_or_resume(step_prompt, sub(f"step-{i}"), decisions)
+                context_parts.append(f"Step {i} result: {last}")
             context = "\n".join(context_parts)
-            step_prompt = f"{context}\nNow execute step {i}: {step}"
-            last_result = self.run(step_prompt)
-            context_parts.append(f"Step {i} result: {last_result}")
-
-        # Step 3: consolidate
-        context = "\n".join(context_parts)
-        final_prompt = (
-            f"{context}\n\nNow provide a final consolidated answer to the original goal: {goal}"
-        )
-        return self.run(final_prompt)
-
-    async def aplan_and_run(self, goal: str) -> str:
-        """Async version of plan_and_run."""
-        plan_prompt = (
-            f"Break the following goal into a numbered list of concrete steps (max 5). "
-            f"Output ONLY the numbered list, no prose before or after.\n\nGoal: {goal}"
-        )
-        plan_messages = [{"role": "user", "content": plan_prompt}]
-        plan_response = await self.model.acomplete(plan_messages, system=self.instructions)
-        plan_text = plan_response.content.strip()
-
-        steps = []
-        for line in plan_text.splitlines():
-            line = line.strip()
-            if line and (line[0].isdigit() or line.startswith("-")):
-                step = line.lstrip("0123456789.-) ").strip()
-                if step:
-                    steps.append(step)
-
-        if not steps:
-            return await self.arun(goal)
-
-        context_parts: list[str] = [f"Overall goal: {goal}", f"Plan:\n{plan_text}", ""]
-        last_result = ""
-        for i, step in enumerate(steps, 1):
-            context = "\n".join(context_parts)
-            step_prompt = f"{context}\nNow execute step {i}: {step}"
-            last_result = await self.arun(step_prompt)
-            context_parts.append(f"Step {i} result: {last_result}")
-
-        context = "\n".join(context_parts)
-        final_prompt = (
-            f"{context}\n\nNow provide a final consolidated answer to the original goal: {goal}"
-        )
-        return await self.arun(final_prompt)
+            final_prompt = (
+                f"{context}\n\nNow provide a final consolidated answer to the original goal: {goal}"
+            )
+            answer = await self._arun_or_resume(final_prompt, sub("final"), decisions)
+        if run_id and self.checkpointer is not None:
+            await asyncio.to_thread(
+                save_record, self.checkpointer, run_id, "plan", goal, answer, plan_text
+            )
+        return answer
 
     # ── Agent-to-agent messaging ─────────────────────────────────────────────
 

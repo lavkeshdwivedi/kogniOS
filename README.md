@@ -490,6 +490,8 @@ A paused run holds back the whole model turn, including tool calls that need no 
 
 The same works async. `await agent.arun(msg, run_id=...)` and `await agent.aresume(run_id, decisions)` share the sync semantics, and `agent.astream_events(msg, run_id=...)` yields dict events (`text`, `tool_call`, `tool_result`, `approval_required`, `done`) that map straight onto server-sent events. A gated call ends the stream with `approval_required`; call again with the same `run_id` and `decisions=` to continue.
 
+Multi-step flows resume too. `agent.plan_and_run(goal, run_id="q3")` saves the plan and each step (`q3/plan`, `q3/step-1`, `q3/final`), so a rerun skips finished steps and continues the one that stopped. A step that pauses for approval raises `ApprovalRequired`, and the next call passes `decisions=`. `aplan_and_run` is the async twin. `Team(router_model, agents, checkpointer=store)` does the same for `run`, `pipeline` and `broadcast` (and their async versions): the routing decision is saved so a resume never routes again, each member saves under `<run_id>/<agent>` with its own checkpointer, and `team.resume(run_id, decisions)` continues a paused routed run. In the async paths, checkpoint writes run in a worker thread so the event loop stays free.
+
 ## Evaluation
 
 Run your agent against a test dataset and measure quality:

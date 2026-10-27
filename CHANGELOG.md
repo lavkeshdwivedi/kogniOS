@@ -17,7 +17,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - `ToolRegistry.acall` ran a sync tool twice when a timeout was set (once to test for a coroutine, once in a thread), duplicating side effects on every async tool call. It now runs the call once.
 
-Not yet checkpointed: `plan_and_run` and `aplan_and_run`, `stream`, and `Team`.
+- **Resumable plans**: `plan_and_run(goal, run_id=..., decisions=...)` and `aplan_and_run` save the plan and every step, skip finished work on a rerun, continue the step that stopped, and honor `require_approval`.
+- **Resumable teams**: `Team(..., checkpointer=...)` makes `run`, `pipeline` and `broadcast` (and the async versions) resumable with a `run_id`. The routing decision is saved so a resume never routes twice. New `Team.resume` and `Team.arun`/`aresume`.
+- Async checkpoint writes and loads now run in a worker thread so they no longer block the event loop.
+
+Not yet checkpointed: `stream`, and a `Team` member run without its own checkpointer.
 
 ---
 
