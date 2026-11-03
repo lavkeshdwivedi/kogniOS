@@ -23,6 +23,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Not yet checkpointed: `stream`, and a `Team` member run without its own checkpointer.
 
+- **Skills**: `load_skills(dir)` reads markdown files with `name` and `description` frontmatter. `skills.index()` puts one line per skill in the system prompt and `skills.tool()` returns a `use_skill` tool that loads the full body only when the model asks, so many skills cost a short index instead of their full text.
+- **Reviewer**: `review(model, content, checks)` runs a fresh-context, skeptical second pass and returns PASS, FAIL or CAN'T VERIFY per check. A check the reviewer skips or garbles counts as CAN'T VERIFY, never a pass. `review_and_revise` hands failures back to a `revise` callback and leaves CAN'T VERIFY items for a human.
+- **Action ledger**: `ActionLedger(db).once(tool)` runs a side-effecting tool at most once per set of arguments, so a retry or resumed run never sends or posts twice. Failed calls are not recorded and can retry. `watermark` and `advance` keep a named cursor for scheduled runs.
+- **`Agent(max_tool_output_chars=...)`** truncates long tool results with a marker saying how much was cut, so one large page or file cannot flood the context window.
+
 ---
 
 ## [1.6.0] - 2026-10-19

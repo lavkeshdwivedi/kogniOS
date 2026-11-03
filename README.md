@@ -543,6 +543,38 @@ except GuardrailError as e:
 
 Built-in guardrails: `block_keywords(*kws)`, `max_length(n)`, `pii_scrubber()`, `profanity_filter()`.
 
+## Patterns for longer-running agents
+
+Four small pieces for agents that run for a while and touch the outside world.
+
+```python
+from kognios import ActionLedger, Agent, load_skills, review_and_revise
+
+# Skills: only a one-line index sits in the prompt, the body loads on demand
+skills = load_skills("skills/")          # skills/triage.md with name + description frontmatter
+ledger = ActionLedger("kognios.db")
+
+@ledger.once                              # a retry or resumed run never sends twice
+def send_reply(to: str, body: str) -> str:
+    """Send a reply."""
+    ...
+
+agent = Agent(
+    model=model,
+    tools=[skills.tool(), send_reply],
+    instructions=skills.index(),
+    max_tool_output_chars=4000,           # cap one big tool result
+)
+
+# A fresh-context reviewer before anything goes out
+draft, report = review_and_revise(
+    model, draft, ["Every number matches the source", "No secrets or internal URLs"],
+    revise=lambda text, rep: agent.run(f"Fix: {[f.reason for f in rep.failures]}\n\n{text}"),
+)
+```
+
+A check the reviewer cannot settle comes back as `CAN'T VERIFY`, never as a pass, so those items go to a human.
+
 ## Plugin system
 
 Third-party packages can extend Kogni·OS with new providers, tools, and memory backends by declaring Python entry points:

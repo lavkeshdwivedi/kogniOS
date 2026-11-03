@@ -6,7 +6,11 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Released
 
-### v1.4.0 (current)
+### v1.6.0 (current)
+- [x] Checkpoints, resume and an approval gate on `Agent`, `plan_and_run` and `Team`
+- [x] Skills, `ActionLedger`, `review` and `max_tool_output_chars` (unreleased)
+
+### v1.4.0
 - [x] `HybridKnowledge(fts_kb, vector_kb, k=60)` — FTS5 + vector via Reciprocal Rank Fusion
 - [x] `kognios ingest --backend hybrid` — single-command hybrid ingestion
 - [x] `ShortTermMemory.compaction_model` — LLM-based summarisation of dropped turns

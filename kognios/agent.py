@@ -45,6 +45,7 @@ class Agent:
         max_tool_errors: int = 3,
         checkpointer: CheckpointStore | None = None,
         require_approval: Iterable[str] | None = None,
+        max_tool_output_chars: int | None = None,
     ):
         self.model = model
         self.registry = ToolRegistry(tools or [])
@@ -62,6 +63,7 @@ class Agent:
         self.max_context_tokens = max_context_tokens
         self.max_tool_errors = max_tool_errors
         self.checkpointer = checkpointer
+        self.max_tool_output_chars = max_tool_output_chars
         self.require_approval = frozenset(require_approval or ())
         if self.require_approval and checkpointer is None:
             raise ValueError("require_approval needs a checkpointer so a paused run can be resumed")
@@ -93,13 +95,21 @@ class Agent:
 
     # ── Tool call helpers ────────────────────────────────────────────────────
 
+    def _cap(self, out: str) -> str:
+        limit = self.max_tool_output_chars
+        if limit is None or len(out) <= limit:
+            return out
+        return f"{out[:limit]}\n[truncated {len(out) - limit} of {len(out)} chars]"
+
     def _call_tool_sync(self, tc: dict) -> str:
         if self.tracer:
             with self.tracer.span("tool.call", tool=tc["name"]):
-                return self.registry.call(
-                    tc["name"], tc.get("input", {}), timeout=self.tool_timeout
+                return self._cap(
+                    self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
                 )
-        return self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+        return self._cap(
+            self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+        )
 
     def _check_tool_errors(self, tc: dict, result: str, counts: dict[str, int]) -> None:
         if isinstance(result, str) and result.startswith("Error:"):
@@ -516,7 +526,7 @@ class Agent:
                     for tc in to_run
                 ]
             )
-        results.update({tc["id"]: out for tc, out in zip(to_run, outputs)})
+        results.update({tc["id"]: self._cap(out) for tc, out in zip(to_run, outputs)})
         return [results[tc["id"]] for tc in calls]
 
     async def astream(self, message: str) -> AsyncIterator[str]:
