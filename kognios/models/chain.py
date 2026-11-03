@@ -23,16 +23,10 @@ _GEMINI_MODELS = [
     "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
-    # 2.5 is closed to new projects but still serves keys that already used it, so it stays
-    # as the last resort for existing deployments that were running on it before 1.5.0.
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
 ]
 
 _TOGETHER_MODELS = [
     "deepseek-ai/DeepSeek-V4.1-Flash",
-    "deepseek-ai/DeepSeek-V4-Flash-0731",
-    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 ]
 
 _XAI_MODELS = [
@@ -43,7 +37,7 @@ _XAI_MODELS = [
 
 _ANTHROPIC_MODELS = [
     "claude-sonnet-5-5",
-    "claude-haiku-4-5-20251001",
+    "claude-haiku-5-5",
 ]
 
 # ── Think-block stripping ─────────────────────────────────────────────────────

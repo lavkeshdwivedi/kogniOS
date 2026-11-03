@@ -15,6 +15,13 @@ from collections.abc import Callable
 
 from .storage.sqlite import get_connection
 
+# stored while an action is in flight; a key still holding it after a crash means the outcome is unknown
+PENDING = "\x00pending"
+UNKNOWN_OUTCOME = (
+    "Error: an earlier attempt of this action never reported back, so it may already have run. "
+    "Check the outside system before repeating it."
+)
+
 
 class ActionLedger:
     def __init__(self, db_path: str = "kognios.db"):
@@ -48,18 +55,38 @@ class ActionLedger:
         )
         self._conn.commit()
 
+    def begin(self, key: str) -> None:
+        """Mark an action as started. If the process dies before ``record`` or ``forget``,
+        ``seen`` returns ``PENDING`` so the action is not blindly repeated."""
+        self.record(key, PENDING)
+
+    def forget(self, key: str) -> None:
+        """Clear a key so a failed action can be retried."""
+        self._conn.execute("DELETE FROM action_ledger WHERE key = ?", (key,))
+        self._conn.commit()
+
     def once(self, fn: Callable) -> Callable:
-        """Run ``fn`` at most once per distinct set of arguments. Failures are not recorded,
-        so a call that raised or returned an ``Error:`` string can still be retried."""
+        """Run ``fn`` at most once per distinct set of arguments. A call that raised or returned
+        an ``Error:`` string is cleared and can be retried. A call that never reported back
+        (the process died mid-action) returns ``UNKNOWN_OUTCOME`` instead of running again."""
 
         @functools.wraps(fn)
         def wrapper(**kwargs):
             key = self.key(fn.__name__, kwargs)
             previous = self.seen(key)
+            if previous == PENDING:
+                return UNKNOWN_OUTCOME
             if previous is not None:
                 return previous
-            result = str(fn(**kwargs))
-            if not result.startswith("Error:"):
+            self.begin(key)
+            try:
+                result = str(fn(**kwargs))
+            except BaseException:
+                self.forget(key)
+                raise
+            if result.startswith("Error:"):
+                self.forget(key)
+            else:
                 self.record(key, result)
             return result
 

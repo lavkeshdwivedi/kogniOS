@@ -8,7 +8,11 @@ from ..registry import tool
 
 @tool
 def python_eval(code: str) -> str:
-    """Execute Python code and return stdout + the final expression value."""
+    """Execute Python code in this process and return what it prints.
+
+    Not a sandbox: the code runs with this process's full access, including its environment
+    and files. Prefer code_interpreter, and put this behind require_approval if you keep it.
+    """
     stdout_buf = io.StringIO()
     local_ns: dict = {}
     try:
