@@ -548,13 +548,15 @@ Built-in guardrails: `block_keywords(*kws)`, `max_length(n)`, `pii_scrubber()`, 
 Four small pieces for agents that run for a while and touch the outside world.
 
 ```python
-from kognios import ActionLedger, Agent, load_skills, review_and_revise
+from kognios import ActionLedger, Agent, load_skills, pii_scrubber, review_and_revise, tool
+from kognios.tools.builtins import file_tools
 
 # Skills: only a one-line index sits in the prompt, the body loads on demand
 skills = load_skills("skills/")          # skills/triage.md with name + description frontmatter
 ledger = ActionLedger("kognios.db")
 
-@ledger.once                              # a retry or resumed run never sends twice
+@ledger.once                              # a retry, a resumed run or a parallel call never sends twice
+@tool
 def send_reply(to: str, body: str) -> str:
     """Send a reply."""
     ...

@@ -10,7 +10,8 @@ from ..registry import tool
 
 
 # the child gets only what Python needs to start, so API keys in the parent's environment stay out
-_ENV_ALLOW = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL")
+_ENV_ALLOW = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL",
+    "USERPROFILE", "HOME", "HOMEDRIVE", "HOMEPATH")
 
 
 def _clean_env() -> dict[str, str]:

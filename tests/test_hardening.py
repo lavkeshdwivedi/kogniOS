@@ -66,17 +66,178 @@ def test_once_tool_not_repeated_when_a_run_replays_its_turn():
     assert sent == ["bob", "bob"]
 
 
-def test_in_flight_marker_blocks_blind_retry():
+def test_in_flight_marker_blocks_blind_retry(tmp_path):
     send, sent = _sender()
+    db = str(tmp_path / "ledger.db")
+    tc = {"id": "t", "name": "send", "input": {"to": "bob"}}
+
+    def agent_on(ledger):
+        return Agent(
+            model=_model(), tools=[send], ledger=ledger, once_tools={"send"},
+            checkpointer=MemoryCheckpointStore(),
+        )
+
+    dying = agent_on(ActionLedger(db))
+    key = dying._once_key(tc, "r1")
+    assert dying.ledger.acquire(key)[0] == "run"  # claimed, then the process "dies"
+    out = agent_on(ActionLedger(db))._call_tool_sync(tc, "r1")  # a fresh process
+    assert out.startswith("Error:") and "may already have run" in out and sent == []
+
+
+def test_agent_marks_the_action_in_flight_while_it_runs():
     ledger = ActionLedger(":memory:")
+    seen = []
+
+    @tool
+    def peek(x: str) -> str:
+        """Peek."""
+        seen.append(ledger.seen(agent._once_key(tc, "r")))
+        return "ok"
+
     agent = Agent(
-        model=_model(), tools=[send], ledger=ledger, once_tools={"send"},
+        model=_model(), tools=[peek], ledger=ledger, once_tools={"peek"},
         checkpointer=MemoryCheckpointStore(),
     )
-    tc = {"id": "t", "name": "send", "input": {"to": "bob"}}
-    ledger.begin(agent._once_key(tc, "r1"))
-    out = agent._call_tool_sync(tc, "r1")
-    assert out.startswith("Error:") and "may already have run" in out and sent == []
+    tc = {"id": "t", "name": "peek", "input": {"x": "a"}}
+    agent._call_tool_sync(tc, "r")
+    assert seen == [PENDING] and ledger.seen(agent._once_key(tc, "r")) == "ok"
+
+
+def test_ledger_once_runs_once_across_threads():
+    import threading
+    import time
+
+    ledger = ActionLedger(":memory:")
+    runs = []
+
+    def act(to: str) -> str:
+        runs.append(to)
+        time.sleep(0.05)
+        return f"sent {to}"
+
+    safe = ledger.once(act)
+    gate = threading.Barrier(8)
+    out = []
+
+    def worker():
+        gate.wait()
+        out.append(safe(to="y"))
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert runs == ["y"] and out == ["sent y"] * 8
+
+
+def test_positional_and_keyword_calls_share_a_key():
+    ledger = ActionLedger(":memory:")
+    runs = []
+
+    def act(to: str, body: str = "hi") -> str:
+        runs.append(to)
+        return "ok"
+
+    safe = ledger.once(act)
+    safe("a")
+    safe(to="a")
+    safe("a", "hi")
+    assert runs == ["a"]
+
+
+def test_interrupt_leaves_the_action_unknown_not_retryable():
+    ledger = ActionLedger(":memory:")
+
+    def act() -> str:
+        raise KeyboardInterrupt
+
+    safe = ledger.once(act)
+    with pytest.raises(KeyboardInterrupt):
+        safe()
+    assert "may already have run" in safe()
+
+
+def test_same_turn_duplicates_run_once_and_do_not_trip_the_breaker():
+    send, sent = _sender()
+    calls = [{"id": f"t{i}", "name": "send", "input": {"to": "bob"}} for i in range(6)]
+    agent = Agent(
+        model=_model(ModelResponse(content="", tool_calls=calls), ModelResponse(content="done")),
+        tools=[send], ledger=ActionLedger(":memory:"), once_tools={"send"},
+        checkpointer=MemoryCheckpointStore(),
+    )
+    assert agent.run("go", run_id="r") == "done"
+    assert sent == ["bob"]
+
+
+def test_timeout_keeps_the_key_pending_so_a_retry_cannot_double_the_action():
+    import time
+
+    ledger = ActionLedger(":memory:")
+    ran = []
+
+    @tool
+    def slow(x: str) -> str:
+        """Slow."""
+        time.sleep(0.3)
+        ran.append(x)
+        return "ok"
+
+    agent = Agent(
+        model=_model(), tools=[slow], ledger=ledger, once_tools={"slow"},
+        checkpointer=MemoryCheckpointStore(), tool_timeout=0.05,
+    )
+    tc = {"id": "t", "name": "slow", "input": {"x": "a"}}
+    assert "timed out" in agent._call_tool_sync(tc, "r")
+    assert "may already have run" in agent._call_tool_sync(tc, "r")
+    time.sleep(0.4)
+    assert ran == ["a"]
+
+
+def test_async_once_tool_runs_once_for_parallel_identical_calls():
+    import asyncio
+
+    send, sent = _sender()
+    calls = [{"id": f"t{i}", "name": "send", "input": {"to": "bob"}} for i in range(4)]
+    m = MagicMock()
+
+    async def acomplete(*a, **k):
+        return responses.pop(0)
+
+    responses = [ModelResponse(content="", tool_calls=calls), ModelResponse(content="done")]
+    m.acomplete.side_effect = acomplete
+    agent = Agent(
+        model=m, tools=[send], ledger=ActionLedger(":memory:"), once_tools={"send"},
+        checkpointer=MemoryCheckpointStore(),
+    )
+    assert asyncio.run(agent.arun("go", run_id="r")) == "done"
+    assert sent == ["bob"]
+
+
+def test_astream_and_astream_events_hold_text_for_output_guardrails():
+    import asyncio
+
+    def chunks():
+        return [ModelChunk(text="mail a@"), ModelChunk(text="b.com now"), ModelChunk(final=True)]
+
+    async def gen(*a, **k):
+        for c in chunks():
+            yield c
+
+    m = MagicMock()
+    m.astream.side_effect = gen
+    agent = Agent(
+        model=m, output_guardrails=[pii_scrubber()], checkpointer=MemoryCheckpointStore()
+    )
+
+    async def collect():
+        plain = "".join([t async for t in agent.astream("q")])
+        events = [e async for e in agent.astream_events("q", run_id="r")]
+        return plain, events
+
+    plain, events = asyncio.run(collect())
+    assert "a@b.com" not in plain and "now" in plain
+    texts = [e["text"] for e in events if e["type"] == "text"]
+    assert len(texts) == 1 and "a@b.com" not in texts[0]
+    assert "a@b.com" not in events[-1]["result"]
 
 
 def test_failed_once_tool_can_retry():
@@ -197,3 +358,14 @@ def test_code_interpreter_does_not_inherit_secrets(monkeypatch):
     monkeypatch.setenv("KOGNIOS_TEST_SECRET", "hunter2")
     out = code_interpreter("import os; print(os.environ.get('KOGNIOS_TEST_SECRET'))")
     assert out == "None"
+
+
+def test_read_file_clamps_a_negative_or_huge_max_chars(tmp_path):
+    f = tmp_path / "big.txt"
+    f.write_text("y" * 50)
+    assert "longer than 0 chars" in read_file(str(f), max_chars=-5)
+    assert read_file(str(f), max_chars=10**12) == "y" * 50
+
+
+def test_code_interpreter_can_find_the_home_folder():
+    assert code_interpreter("from pathlib import Path; print(Path.home().is_absolute())") == "True"

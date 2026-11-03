@@ -6,32 +6,35 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Released
 
-### v1.6.0 (current)
+### Unreleased
 - [x] Checkpoints, resume and an approval gate on `Agent`, `plan_and_run` and `Team`
-- [x] Skills, `ActionLedger`, `review` and `max_tool_output_chars` (unreleased)
+- [x] Skills, `ActionLedger`, `review`, `tool_guardrails`, `file_tools` and `max_tool_output_chars`
+
+### v1.6.0 (current release)
+- [x] Composite setup action, consumer API smoke test, numeric-tag PyPI publishing
 
 ### v1.4.0
-- [x] `HybridKnowledge(fts_kb, vector_kb, k=60)` — FTS5 + vector via Reciprocal Rank Fusion
-- [x] `kognios ingest --backend hybrid` — single-command hybrid ingestion
-- [x] `ShortTermMemory.compaction_model` — LLM-based summarisation of dropped turns
-- [x] `ShortTermMemory.acompact()` — async compaction variant
-- [x] `LongTermMemory.remember()` / `.forget()` — ergonomic aliases for `store()` / `delete()`
+- [x] `HybridKnowledge(fts_kb, vector_kb, k=60)`: FTS5 + vector via Reciprocal Rank Fusion
+- [x] `kognios ingest --backend hybrid`: single-command hybrid ingestion
+- [x] `ShortTermMemory.compaction_model`: LLM-based summarisation of dropped turns
+- [x] `ShortTermMemory.acompact()`: async compaction variant
+- [x] `LongTermMemory.remember()` / `.forget()`: ergonomic aliases for `store()` / `delete()`
 - [x] `LongTermMemory.semantic_recall()` fallback: LIKE search on key instead of arbitrary first-N rows
-- [x] `AzureOpenAIModel` — Azure OpenAI provider (`openai.AzureOpenAI`), optional `api_key`
-- [x] `VertexAIModel` — Google Vertex AI (Gemini) via `google-cloud-aiplatform`; `[vertexai]` extra
+- [x] `AzureOpenAIModel`: Azure OpenAI provider (`openai.AzureOpenAI`), optional `api_key`
+- [x] `VertexAIModel`: Google Vertex AI (Gemini) via `google-cloud-aiplatform`; `[vertexai]` extra
 
 ### v1.3.0
-- [x] `Agent.max_tool_errors` — circuit breaker; raises after N consecutive `"Error: ..."` results from a tool
-- [x] `Agent.max_context_tokens` — auto-trim oldest turns before each LLM call; prevents context overflow
+- [x] `Agent.max_tool_errors`: circuit breaker; raises after N consecutive `"Error: ..."` results from a tool
+- [x] `Agent.max_context_tokens`: auto-trim oldest turns before each LLM call; prevents context overflow
 - [x] Parallel sync tool calls in `Agent.run()` via `ThreadPoolExecutor` (matches `arun()`)
-- [x] `Team.pipeline()` / `apipeline()` — sequential agent chain
-- [x] `Team.broadcast()` / `abroadcast()` — parallel fan-out to all agents
+- [x] `Team.pipeline()` / `apipeline()`: sequential agent chain
+- [x] `Team.broadcast()` / `abroadcast()`: parallel fan-out to all agents
 - [x] `OpenAIModel.structured_complete()` uses native `response_format=json_object` (Groq inherits it)
 
 ### v1.2.0
-- [x] `ModelChain.astream()` — async streaming across provider chain
+- [x] `ModelChain.astream()`: async streaming across provider chain
 - [x] `ModelChain.stream()` deadline enforcement (matches `complete()` robustness)
-- [x] `Agent.tool_timeout` — 30 s default; hung tools cancelled and return an error string
+- [x] `Agent.tool_timeout`: 30 s default; hung tools cancelled and return an error string
 - [x] xAI / Grok in `free_tier_chain()` (`grok-4`, `grok-3`, `grok-3-mini`)
 - [x] `_collect_keys` scans all N env var slots (no longer stops at first gap)
 - [x] `AnthropicModel` default corrected to `claude-sonnet-4-6`
@@ -76,23 +79,23 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Planned
 
-### v1.5 — Performance & Developer Experience
+### v1.5: Performance & Developer Experience
 
 #### Prompt Caching & Cost Reduction
 - [ ] **Anthropic prompt caching (`cache_system=True`)**: when `AnthropicModel` is
   constructed with `cache_system=True`, wrap the system prompt block with
-  `cache_control: {"type": "ephemeral"}` — ~90% cost reduction and ~85% latency
+  `cache_control: {"type": "ephemeral"}`: ~90% cost reduction and ~85% latency
   reduction on repeated identical system prompts
 - [ ] **Cache hit reporting in `agent.last_usage`**: surface `cache_read_input_tokens`
   and `cache_creation_input_tokens` from the Anthropic response
 - [ ] **Tool result caching (`cache_tool_results=True` on `Agent`)**: deduplicate
-  identical `(tool_name, frozen_args)` calls within a single `run()` / `arun()` turn —
+  identical `(tool_name, frozen_args)` calls within a single `run()` / `arun()` turn:
   avoids redundant I/O for deterministic tools like `read_file` or `http_get`
 
 #### Reliability
 - [ ] **Tool retry (`tool_max_retries` on `Agent`)**: when a tool returns `"Error: ..."`
   retry up to N times with exponential backoff before incrementing the `max_tool_errors`
-  counter — reduces false positives from transient network errors
+  counter: reduces false positives from transient network errors
 - [ ] **Typed streaming events (`StreamEvent`)**: discriminated union
   `StreamEvent(kind: Literal["text","tool_start","tool_end","done"], ...)` via a new
   `agent.stream_events(message)` method; `agent.stream()` remains unchanged
@@ -122,8 +125,8 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 - [ ] **`web_search(query, max_chars=500)`**: snippet length control so agents can
   request briefer or fuller snippets depending on context budget
 
-### v2.0 — Production Hardening
-- [ ] **Agent checkpointing**: `save_agent(agent, path)` / `load_agent(path, model)` —
+### v2.0: Production Hardening
+- [ ] **Agent checkpointing**: `save_agent(agent, path)` / `load_agent(path, model)`:
   serialise messages + `ShortTermMemory` to JSON for resume-after-crash or
   human-in-the-loop workflows; `LongTermMemory` and `NumpyVectorKnowledge` already
   persist to disk and are excluded from the snapshot
@@ -133,7 +136,7 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 - [ ] **`kognios serve` authentication middleware**: `--api-key` flag generates a
   bearer-token check on all endpoints; also accepts `KOGNIOS_SERVE_API_KEY` env var
 - [ ] **`POST /team` endpoint on `kognios serve`**: accepts `{message, agents: [...]}`
-  and invokes `Team.run()` server-side — useful for demos without writing Python
+  and invokes `Team.run()` server-side: useful for demos without writing Python
 - [ ] **`AsyncLongTermMemory`**: `aiosqlite`-backed variant so `Agent.arun()` never
   blocks the event loop on fact storage or retrieval; optional `[async-db]` extra
 
@@ -141,10 +144,10 @@ Tracks what shipped and what's planned. PRs welcome on any **Planned** item.
 
 ## Out of scope
 
-- LangChain / LlamaIndex compatibility shims — the whole point is to stay lean
+- LangChain / LlamaIndex compatibility shims: the whole point is to stay lean
 - GUI / visual workflow builder
-- Proprietary cloud hosting — kognios is a library, not a service
-- Bundled vector database servers (Pinecone, Weaviate, Qdrant) — use the plugin system;
+- Proprietary cloud hosting: kognios is a library, not a service
+- Bundled vector database servers (Pinecone, Weaviate, Qdrant): use the plugin system;
   `NumpyVectorKnowledge` is the reference implementation for local vector search
 
 ---

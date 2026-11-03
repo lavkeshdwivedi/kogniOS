@@ -19,9 +19,11 @@ from .checkpoint import (
     save_record,
 )
 from .guardrails.base import GuardrailError  # noqa: F401 – re-exported for convenience
-from .ledger import PENDING, UNKNOWN_OUTCOME, ActionLedger
+from .ledger import DONE as DONE_STATUS
+from .ledger import UNKNOWN as UNKNOWN_STATUS
+from .ledger import UNKNOWN_OUTCOME, ActionLedger
 from .models.base import BaseModel
-from .tools.registry import ToolRegistry
+from .tools.registry import ToolRegistry, timed_out
 from .tracing import Tracer
 
 T = TypeVar("T")
@@ -152,43 +154,62 @@ class Agent:
         return self.ledger.key(f"{scope}:{tc['name']}", tc.get("input", {}))
 
     def _replay(self, key: str | None) -> str | None:
-        """The earlier result for an action that already ran, or None when it should run now."""
+        """Claim a once-tool call. Returns the earlier result when it already ran (or an
+        unknown-outcome error), or None when the caller should run it now. Blocks while
+        another call with the same arguments is in flight, so it never runs twice."""
         if key is None:
             return None
-        prior = self.ledger.seen(key)
-        if prior == PENDING:
-            return UNKNOWN_OUTCOME
-        if prior is None:
-            self.ledger.begin(key)  # marked before it runs, so a crash mid-action is visible
-        return prior
+        status, prior = self.ledger.acquire(key)
+        if status == DONE_STATUS:
+            return prior
+        return UNKNOWN_OUTCOME if status == UNKNOWN_STATUS else None
 
     def _settle(self, key: str | None, raw: str) -> None:
         if key is None:
             return
-        if raw.startswith("Error:"):
-            self.ledger.forget(key)
+        if timed_out(raw):
+            # the worker thread may still finish the action, so a retry could double it
+            self.ledger.hold(key)
+        elif raw.startswith("Error:"):
+            self.ledger.release(key)
         else:
-            self.ledger.record(key, raw)
+            self.ledger.finish(key, raw)
 
     def _call_tool_sync(self, tc: dict, scope: str = "") -> str:
         key = self._once_key(tc, scope)
         prior = self._replay(key)
         if prior is not None:
             return self._filter(prior)
-        if self.tracer:
-            with self.tracer.span("tool.call", tool=tc["name"]):
+        try:
+            if self.tracer:
+                with self.tracer.span("tool.call", tool=tc["name"]):
+                    raw = self.registry.call(
+                        tc["name"], tc.get("input", {}), timeout=self.tool_timeout
+                    )
+            else:
                 raw = self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
-        else:
-            raw = self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+        except BaseException:
+            if key is not None:
+                self.ledger.hold(key)
+            raise
         self._settle(key, raw)
         return self._filter(raw)
 
     async def _acall_tool(self, tc: dict, scope: str = "") -> str:
         key = self._once_key(tc, scope)
-        prior = self._replay(key)
-        if prior is not None:
-            return self._filter(prior)
-        raw = await self.registry.acall(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+        if key is not None:
+            # acquire can wait on a sibling call, so it runs off the event loop
+            prior = await asyncio.to_thread(self._replay, key)
+            if prior is not None:
+                return self._filter(prior)
+        try:
+            raw = await self.registry.acall(
+                tc["name"], tc.get("input", {}), timeout=self.tool_timeout
+            )
+        except BaseException:
+            if key is not None:
+                self.ledger.hold(key)
+            raise
         self._settle(key, raw)
         return self._filter(raw)
 
