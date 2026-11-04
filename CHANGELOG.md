@@ -15,6 +15,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Async parity**: `arun(message, run_id=...)` and `aresume(run_id, decisions)` have the same checkpoint, resume and approval semantics as the sync methods, and share one decision path. `astream_events(message, run_id=..., decisions=...)` streams a run as dict events (`text`, `tool_call`, `tool_result`, `approval_required`, `done`) and is checkpointed. `astream` is unchanged and still yields text.
 
 ### Fixed
+- Input guardrails now run before knowledge and memory retrieval. Before, the unscrubbed message was used to search, so text a guardrail would have removed or rejected had already reached retrieval.
+- Output guardrails now apply to structured (`output_type`) answers, which skipped them, and to `stream`, `astream` and `astream_events`. With output guardrails set, streamed text is held back and emitted once, guarded, when the final answer is complete, and text from a turn that ends in a tool call is no longer streamed at all. Structured answers are also saved to memory now.
+- `max_context_tokens` trimming no longer leaves a tool result whose tool call was trimmed away, which most providers reject.
+- `read_file` is capped at 20000 characters by default instead of returning whole files. `max_chars` can raise or lower that, but it is clamped to 0 to 200000 because the model controls it.
+- `code_interpreter` now runs Python in isolated mode with an allow-listed environment and an empty temporary working folder, so API keys in the parent's environment are not visible to the code. The home-folder variables are kept so `Path.home()` still works. Its docstring and `python_eval`'s now say plainly that neither is a sandbox.
+- Retired models removed, checked against provider pages on 2026-11-03: Together `DeepSeek-V4-Flash-0731` and `Llama-3.3-70B-Instruct-Turbo` (off serverless 2026-10-22) and Gemini `gemini-2.5-flash` and `gemini-2.5-flash-lite` (Vertex retirement 2026-10-20). `claude-haiku-4-5` is legacy but still available; `free_tier_chain()`, the examples and the tests now use its successor `claude-haiku-5-5`. The README Bedrock example uses `anthropic.claude-sonnet-5-5`.
 - `ToolRegistry.acall` ran a sync tool twice when a timeout was set (once to test for a coroutine, once in a thread), duplicating side effects on every async tool call. It now runs the call once.
 
 - **Resumable plans**: `plan_and_run(goal, run_id=..., decisions=...)` and `aplan_and_run` save the plan and every step, skip finished work on a rerun, continue the step that stopped, and honor `require_approval`.
@@ -22,6 +28,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Async checkpoint writes and loads now run in a worker thread so they no longer block the event loop.
 
 Not yet checkpointed: `stream`, and a `Team` member run without its own checkpointer.
+
+- **Skills**: `load_skills(dir)` reads markdown files with `name` and `description` frontmatter. `skills.index()` puts one line per skill in the system prompt and `skills.tool()` returns a `use_skill` tool that loads the full body only when the model asks, so many skills cost a short index instead of their full text.
+- **Reviewer**: `review(model, content, checks)` runs a fresh-context, skeptical second pass and returns PASS, FAIL or CAN'T VERIFY per check. A check the reviewer skips or garbles counts as CAN'T VERIFY, never a pass. `review_and_revise` hands failures back to a `revise` callback and leaves CAN'T VERIFY items for a human.
+- **Action ledger**: `ActionLedger(db).once(tool)` runs a side-effecting tool at most once per set of arguments, even across threads, so a retry or resumed run never sends or posts twice. Positional and keyword spellings of the same call share one key. Failed calls are not recorded and can retry; an interrupted call (`KeyboardInterrupt`) is treated as outcome unknown. `watermark` and `advance` keep a named cursor for scheduled runs.
+- **`Agent(ledger=..., once_tools={...})`** runs the named tools at most once per `run_id` and arguments. The action is claimed atomically before it runs, so identical calls in one turn, in parallel threads or in parallel async tasks wait for the first and share its result. If the process dies after a tool acted but before the step was saved, or the tool times out while its worker thread may still finish, the next attempt gets an "outcome unknown, check before repeating" error instead of acting twice. A tool that raises or returns an `Error:` is cleared and may retry. Needs a checkpointer. `stream` and `astream` have no run id and do not use the ledger.
+- **`Agent(tool_guardrails=[...])`** passes every tool result through guardrails before the model sees it, for example `pii_scrubber()` or a check for injected instructions. A `GuardrailError` becomes an `Error:` result instead of ending the run.
+- **`file_tools(root)`** returns `read_file` and `write_file` confined to one folder. Paths that resolve outside it (absolute, `..`, symlink) are refused.
+- **`Agent(max_tool_output_chars=...)`** truncates long tool results with a marker saying how much was cut, so one large page or file cannot flood the context window.
 
 ---
 

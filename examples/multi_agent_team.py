@@ -19,7 +19,7 @@ def get_weather(city: str) -> str:
     return f"It is 18°C and cloudy in {city}."
 
 
-model = AnthropicModel(model="claude-haiku-4-5-20251001")
+model = AnthropicModel(model="claude-haiku-5-5")
 
 finance_agent = Agent(
     model=model,

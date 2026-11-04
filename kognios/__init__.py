@@ -36,6 +36,9 @@ from .checkpoint import (
     MemoryCheckpointStore,
     SQLiteCheckpointStore,
 )
+from .skills import Skill, SkillSet, load_skills
+from .ledger import ActionLedger
+from .review import ReviewReport, review, review_and_revise
 from .plugins import load_plugins, discover_all, list_plugins
 
 __all__ = [
@@ -76,6 +79,13 @@ __all__ = [
     "Checkpoint",
     "MemoryCheckpointStore",
     "SQLiteCheckpointStore",
+    "Skill",
+    "SkillSet",
+    "load_skills",
+    "ActionLedger",
+    "ReviewReport",
+    "review",
+    "review_and_revise",
     "load_plugins",
     "discover_all",
     "list_plugins",

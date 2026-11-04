@@ -25,7 +25,7 @@ def get_time(timezone: str) -> str:
         return datetime.utcnow().strftime("%H:%M UTC")
 
 
-model = AnthropicModel(model="claude-haiku-4-5-20251001")
+model = AnthropicModel(model="claude-haiku-5-5")
 agent = Agent(
     model=model,
     tools=[get_weather, get_time],

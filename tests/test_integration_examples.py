@@ -20,7 +20,7 @@ def test_anthropic_basic_run():
     """Real API call to Anthropic — requires ANTHROPIC_API_KEY."""
     from kognios import Agent, AnthropicModel
 
-    agent = Agent(model=AnthropicModel(model="claude-haiku-4-5-20251001"))
+    agent = Agent(model=AnthropicModel(model="claude-haiku-5-5"))
     result = agent.run("Reply with exactly: hello")
     assert "hello" in result.lower()
 

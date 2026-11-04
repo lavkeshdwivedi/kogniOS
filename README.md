@@ -340,7 +340,7 @@ model = GeminiModel(model="gemini-3.8-flash")                           # GEMINI
 model = OllamaModel(model="llama3.3")                                   # needs Ollama running locally
 model = MistralModel(model="mistral-large-latest")                      # MISTRAL_API_KEY
 model = CohereModel(model="command-a-plus-05-2026")                     # COHERE_API_KEY
-model = BedrockModel(model="anthropic.claude-3-7-sonnet-20250219-v1:0") # AWS_* env vars
+model = BedrockModel(model="anthropic.claude-sonnet-5-5") # AWS_* env vars
 model = XAIModel(model="grok-4.7")                                        # XAI_API_KEY
 model = TogetherModel(model="deepseek-ai/DeepSeek-V4.1-Flash")           # TOGETHER_API_KEY
 ```
@@ -542,6 +542,42 @@ except GuardrailError as e:
 ```
 
 Built-in guardrails: `block_keywords(*kws)`, `max_length(n)`, `pii_scrubber()`, `profanity_filter()`.
+
+## Patterns for longer-running agents
+
+Four small pieces for agents that run for a while and touch the outside world.
+
+```python
+from kognios import ActionLedger, Agent, load_skills, pii_scrubber, review_and_revise, tool
+from kognios.tools.builtins import file_tools
+
+# Skills: only a one-line index sits in the prompt, the body loads on demand
+skills = load_skills("skills/")          # skills/triage.md with name + description frontmatter
+ledger = ActionLedger("kognios.db")
+
+@ledger.once                              # a retry, a resumed run or a parallel call never sends twice
+@tool
+def send_reply(to: str, body: str) -> str:
+    """Send a reply."""
+    ...
+
+agent = Agent(
+    model=model,
+    tools=[skills.tool(), send_reply],
+    instructions=skills.index(),
+    max_tool_output_chars=4000,           # cap one big tool result
+)
+
+# A fresh-context reviewer before anything goes out
+draft, report = review_and_revise(
+    model, draft, ["Every number matches the source", "No secrets or internal URLs"],
+    revise=lambda text, rep: agent.run(f"Fix: {[f.reason for f in rep.failures]}\n\n{text}"),
+)
+```
+
+A check the reviewer cannot settle comes back as `CAN'T VERIFY`, never as a pass, so those items go to a human.
+
+Two more options keep a long run safe. `Agent(ledger=ledger, once_tools={"send_reply"}, checkpointer=store)` runs those tools at most once per `run_id`, and if the process dies mid-action the replayed turn is told the outcome is unknown instead of acting again. `Agent(tool_guardrails=[pii_scrubber()])` screens every tool result before the model sees it. For file access, `read_file, write_file = file_tools("workdir/")` gives tools that cannot leave that folder. `python_eval` and `code_interpreter` are not sandboxes: keep them behind `require_approval` unless the code and the machine are trusted.
 
 ## Plugin system
 

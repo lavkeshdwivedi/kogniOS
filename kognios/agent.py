@@ -19,8 +19,11 @@ from .checkpoint import (
     save_record,
 )
 from .guardrails.base import GuardrailError  # noqa: F401 – re-exported for convenience
+from .ledger import DONE as DONE_STATUS
+from .ledger import UNKNOWN as UNKNOWN_STATUS
+from .ledger import UNKNOWN_OUTCOME, ActionLedger
 from .models.base import BaseModel
-from .tools.registry import ToolRegistry
+from .tools.registry import ToolRegistry, timed_out
 from .tracing import Tracer
 
 T = TypeVar("T")
@@ -45,6 +48,10 @@ class Agent:
         max_tool_errors: int = 3,
         checkpointer: CheckpointStore | None = None,
         require_approval: Iterable[str] | None = None,
+        max_tool_output_chars: int | None = None,
+        tool_guardrails: list[Callable] | None = None,
+        ledger: ActionLedger | None = None,
+        once_tools: Iterable[str] | None = None,
     ):
         self.model = model
         self.registry = ToolRegistry(tools or [])
@@ -62,9 +69,15 @@ class Agent:
         self.max_context_tokens = max_context_tokens
         self.max_tool_errors = max_tool_errors
         self.checkpointer = checkpointer
+        self.max_tool_output_chars = max_tool_output_chars
+        self.tool_guardrails = tool_guardrails or []
+        self.ledger = ledger
+        self.once_tools = frozenset(once_tools or ())
         self.require_approval = frozenset(require_approval or ())
         if self.require_approval and checkpointer is None:
             raise ValueError("require_approval needs a checkpointer so a paused run can be resumed")
+        if self.once_tools and (ledger is None or checkpointer is None):
+            raise ValueError("once_tools needs a ledger and a checkpointer (runs are keyed by run_id)")
 
     # ── Guardrail helpers ────────────────────────────────────────────────────
 
@@ -78,28 +91,127 @@ class Agent:
             text = guard(text)
         return text
 
+    def _guard_structured(self, raw: dict) -> dict:
+        """Run output guardrails over a structured answer's JSON text, then parse it back."""
+        if not self.output_guardrails:
+            return raw
+        guarded = self._apply_output_guardrails(json.dumps(raw))
+        try:
+            return json.loads(guarded)
+        except ValueError as exc:
+            raise GuardrailError("An output guardrail left the structured answer invalid") from exc
+
+    def _remember(self, user_text: str, answer: str) -> None:
+        if self.memory and hasattr(self.memory, "append"):
+            self.memory.append("user", user_text)
+            self.memory.append("assistant", answer)
+
     # ── Context trimming ─────────────────────────────────────────────────────
+
+    def _is_tool_result(self, message: dict) -> bool:
+        content = message.get("content")
+        return (
+            message.get("role") == "user"
+            and isinstance(content, list)
+            and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+        )
 
     def _trim_messages(self, messages: list[dict]) -> list[dict]:
         if self.max_context_tokens is None:
             return messages
-        # ~4 chars per token; always keep the last message (current user turn)
-        while len(messages) > 1:
+        # ~4 chars per token. Always keep the current turn: the last message, plus the assistant
+        # tool call it answers when the last message is a tool result.
+        floor = 2 if len(messages) >= 2 and self._is_tool_result(messages[-1]) else 1
+        while len(messages) > floor:
             est = sum(len(str(m.get("content", ""))) for m in messages) // 4
             if est <= self.max_context_tokens:
                 break
+            messages = messages[1:]
+        # a tool result whose tool call was trimmed away is rejected by most providers
+        while len(messages) > floor and self._is_tool_result(messages[0]):
             messages = messages[1:]
         return messages
 
     # ── Tool call helpers ────────────────────────────────────────────────────
 
-    def _call_tool_sync(self, tc: dict) -> str:
-        if self.tracer:
-            with self.tracer.span("tool.call", tool=tc["name"]):
-                return self.registry.call(
-                    tc["name"], tc.get("input", {}), timeout=self.tool_timeout
-                )
-        return self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+    def _filter(self, out: str) -> str:
+        """Cap a tool result, then pass it through the tool guardrails. A guardrail that
+        rejects it turns the result into an error string instead of ending the run."""
+        limit = self.max_tool_output_chars
+        if limit is not None and len(out) > limit:
+            out = f"{out[:limit]}\n[truncated {len(out) - limit} of {len(out)} chars]"
+        try:
+            for guard in self.tool_guardrails:
+                out = guard(out)
+        except GuardrailError as exc:
+            return f"Error: tool result blocked by guardrail: {exc}"
+        return out
+
+    def _once_key(self, tc: dict, scope: str) -> str | None:
+        # only runs with a run_id are scoped, so a repeat across separate runs stays allowed
+        if self.ledger is None or not scope or tc["name"] not in self.once_tools:
+            return None
+        return self.ledger.key(f"{scope}:{tc['name']}", tc.get("input", {}))
+
+    def _replay(self, key: str | None) -> str | None:
+        """Claim a once-tool call. Returns the earlier result when it already ran (or an
+        unknown-outcome error), or None when the caller should run it now. Blocks while
+        another call with the same arguments is in flight, so it never runs twice."""
+        if key is None:
+            return None
+        status, prior = self.ledger.acquire(key)
+        if status == DONE_STATUS:
+            return prior
+        return UNKNOWN_OUTCOME if status == UNKNOWN_STATUS else None
+
+    def _settle(self, key: str | None, raw: str) -> None:
+        if key is None:
+            return
+        if timed_out(raw):
+            # the worker thread may still finish the action, so a retry could double it
+            self.ledger.hold(key)
+        elif raw.startswith("Error:"):
+            self.ledger.release(key)
+        else:
+            self.ledger.finish(key, raw)
+
+    def _call_tool_sync(self, tc: dict, scope: str = "") -> str:
+        key = self._once_key(tc, scope)
+        prior = self._replay(key)
+        if prior is not None:
+            return self._filter(prior)
+        try:
+            if self.tracer:
+                with self.tracer.span("tool.call", tool=tc["name"]):
+                    raw = self.registry.call(
+                        tc["name"], tc.get("input", {}), timeout=self.tool_timeout
+                    )
+            else:
+                raw = self.registry.call(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
+        except BaseException:
+            if key is not None:
+                self.ledger.hold(key)
+            raise
+        self._settle(key, raw)
+        return self._filter(raw)
+
+    async def _acall_tool(self, tc: dict, scope: str = "") -> str:
+        key = self._once_key(tc, scope)
+        if key is not None:
+            # acquire can wait on a sibling call, so it runs off the event loop
+            prior = await asyncio.to_thread(self._replay, key)
+            if prior is not None:
+                return self._filter(prior)
+        try:
+            raw = await self.registry.acall(
+                tc["name"], tc.get("input", {}), timeout=self.tool_timeout
+            )
+        except BaseException:
+            if key is not None:
+                self.ledger.hold(key)
+            raise
+        self._settle(key, raw)
+        return self._filter(raw)
 
     def _check_tool_errors(self, tc: dict, result: str, counts: dict[str, int]) -> None:
         if isinstance(result, str) and result.startswith("Error:"):
@@ -126,11 +238,11 @@ class Agent:
         cp = self._load_run(run_id)
         if cp is not None:
             return self._continue(cp, output_type, None)
-        if self.require_approval and not run_id:
-            raise ValueError("require_approval needs a run_id so the run can be resumed")
+        if (self.require_approval or self.once_tools) and not run_id:
+            raise ValueError("this agent needs a run_id (require_approval or once_tools is set)")
         self.last_usage = {}
-        system = self._build_system(message)
         message = self._apply_input_guardrails(message)
+        system = self._build_system(message)
         messages = self._build_messages(message)
         state = Checkpoint(
             run_id=run_id or "", step=0, status=RUNNING, message=message, messages=messages
@@ -243,7 +355,9 @@ class Agent:
                             schema=schema,
                             system=system,
                         )
+                        raw = self._guard_structured(raw)
                         state.result = json.dumps(raw)
+                        self._remember(state.message, state.result)
                         self._checkpoint(state, DONE)
                         return _validate(output_type, raw)
 
@@ -319,9 +433,9 @@ class Agent:
         results, to_run = self._resolve_calls(state, calls, decisions)
         if len(to_run) > 1:
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                outputs = list(pool.map(self._call_tool_sync, to_run))
+                outputs = list(pool.map(lambda tc: self._call_tool_sync(tc, state.run_id), to_run))
         else:
-            outputs = [self._call_tool_sync(tc) for tc in to_run]
+            outputs = [self._call_tool_sync(tc, state.run_id) for tc in to_run]
         results.update({tc["id"]: out for tc, out in zip(to_run, outputs)})
         return [results[tc["id"]] for tc in calls]
 
@@ -332,8 +446,8 @@ class Agent:
                 block["input"] = tc["input"]
 
     def stream(self, message: str) -> Iterator[str]:
-        system = self._build_system(message)
         message = self._apply_input_guardrails(message)
+        system = self._build_system(message)
         messages = self._build_messages(message)
         tools = self.registry.schemas() if self.registry else None
         accumulated_text = ""
@@ -346,7 +460,8 @@ class Agent:
 
             for chunk in self.model.stream(messages, tools=tools, system=system):
                 if chunk.text:
-                    yield chunk.text
+                    if not self.output_guardrails:
+                        yield chunk.text
                     accumulated_text += chunk.text
                 if chunk.final:
                     tool_calls = chunk.tool_calls
@@ -364,6 +479,9 @@ class Agent:
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
+            if self.output_guardrails and accumulated_text:
+                accumulated_text = self._apply_output_guardrails(accumulated_text)
+                yield accumulated_text
             if accumulated_text and self.memory:
                 self.memory.append("user", message)
                 self.memory.append("assistant", accumulated_text)
@@ -385,11 +503,11 @@ class Agent:
         cp = await asyncio.to_thread(self._load_run, run_id)
         if cp is not None:
             return await self._acontinue(cp, output_type, None)
-        if self.require_approval and not run_id:
-            raise ValueError("require_approval needs a run_id so the run can be resumed")
+        if (self.require_approval or self.once_tools) and not run_id:
+            raise ValueError("this agent needs a run_id (require_approval or once_tools is set)")
         self.last_usage = {}
-        system = self._build_system(message)
         message = self._apply_input_guardrails(message)
+        system = self._build_system(message)
         messages = self._build_messages(message)
         state = Checkpoint(
             run_id=run_id or "", step=0, status=RUNNING, message=message, messages=messages
@@ -466,7 +584,9 @@ class Agent:
                             schema=schema,
                             system=system,
                         )
+                        raw = self._guard_structured(raw)
                         state.result = json.dumps(raw)
+                        self._remember(state.message, state.result)
                         await self._acheckpoint(state, DONE)
                         return _validate(output_type, raw)
 
@@ -504,24 +624,15 @@ class Agent:
             outputs = []
             for tc in to_run:
                 with self.tracer.span("tool.call", tool=tc["name"]):
-                    outputs.append(
-                        await self.registry.acall(
-                            tc["name"], tc.get("input", {}), timeout=self.tool_timeout
-                        )
-                    )
+                    outputs.append(await self._acall_tool(tc, state.run_id))
         else:
-            outputs = await asyncio.gather(
-                *[
-                    self.registry.acall(tc["name"], tc.get("input", {}), timeout=self.tool_timeout)
-                    for tc in to_run
-                ]
-            )
+            outputs = await asyncio.gather(*[self._acall_tool(tc, state.run_id) for tc in to_run])
         results.update({tc["id"]: out for tc, out in zip(to_run, outputs)})
         return [results[tc["id"]] for tc in calls]
 
     async def astream(self, message: str) -> AsyncIterator[str]:
-        system = self._build_system(message)
         message = self._apply_input_guardrails(message)
+        system = self._build_system(message)
         messages = self._build_messages(message)
         tools = self.registry.schemas() if self.registry else None
         _tool_error_counts: dict[str, int] = {}
@@ -533,7 +644,8 @@ class Agent:
 
             async for chunk in self.model.astream(messages, tools=tools, system=system):
                 if chunk.text:
-                    yield chunk.text
+                    if not self.output_guardrails:
+                        yield chunk.text
                     accumulated_text += chunk.text
                 if chunk.final:
                     tool_calls = chunk.tool_calls
@@ -545,19 +657,15 @@ class Agent:
                         "content": self._encode_tool_calls_raw(accumulated_text, tool_calls),
                     }
                 )
-                results = await asyncio.gather(
-                    *[
-                        self.registry.acall(
-                            tc["name"], tc.get("input", {}), timeout=self.tool_timeout
-                        )
-                        for tc in tool_calls
-                    ]
-                )
+                results = await asyncio.gather(*[self._acall_tool(tc) for tc in tool_calls])
                 for tc, result in zip(tool_calls, results):
                     self._check_tool_errors(tc, result, _tool_error_counts)
                     messages.append(self._tool_result_message(tc, result))
                 continue
 
+            if self.output_guardrails and accumulated_text:
+                accumulated_text = self._apply_output_guardrails(accumulated_text)
+                yield accumulated_text
             if accumulated_text and self.memory:
                 self.memory.append("user", message)
                 self.memory.append("assistant", accumulated_text)
@@ -578,19 +686,19 @@ class Agent:
         Events are dicts with a "type": text, tool_call, tool_result, approval_required and
         done. A gated tool call ends the stream with approval_required (the run is saved);
         call again with the same run_id and decisions to continue. Plain astream() is unchanged
-        and still yields text only. Output guardrails cannot rewrite text already streamed, so
-        they are not applied here.
+        and still yields text only. With output guardrails set, text is held back and emitted once,
+        guarded, when the final answer is complete.
         """
         cp = await asyncio.to_thread(self._load_run, run_id)
         if cp is not None and cp.status == DONE and cp.result is not None:
             yield {"type": "done", "run_id": run_id, "result": cp.result}
             return
-        if cp is None and self.require_approval and not run_id:
-            raise ValueError("require_approval needs a run_id so the run can be resumed")
+        if cp is None and (self.require_approval or self.once_tools) and not run_id:
+            raise ValueError("this agent needs a run_id (require_approval or once_tools is set)")
         if cp is None:
             self.last_usage = {}
-            system = self._build_system(message)
             message = self._apply_input_guardrails(message)
+            system = self._build_system(message)
             state = Checkpoint(
                 run_id=run_id or "",
                 step=0,
@@ -619,12 +727,16 @@ class Agent:
                 async for chunk in self.model.astream(messages, tools=tools, system=system):
                     if chunk.text:
                         text += chunk.text
-                        yield {"type": "text", "text": chunk.text}
+                        if not self.output_guardrails:
+                            yield {"type": "text", "text": chunk.text}
                     if chunk.final:
                         calls = chunk.tool_calls
                 state.iterations_used += 1
 
                 if not calls:
+                    if self.output_guardrails and text:
+                        text = self._apply_output_guardrails(text)
+                        yield {"type": "text", "text": text}
                     if self.memory and text:
                         self.memory.append("user", state.message)
                         self.memory.append("assistant", text)

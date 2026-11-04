@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from kognios import Agent, AnthropicModel, ShortTermMemory, LongTermMemory
 
-model = AnthropicModel(model="claude-haiku-4-5-20251001")
+model = AnthropicModel(model="claude-haiku-5-5")
 short_mem = ShortTermMemory(max_turns=10)
 long_mem = LongTermMemory(db_path=":memory:")
 

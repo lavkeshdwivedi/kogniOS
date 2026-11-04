@@ -18,7 +18,7 @@ Team routing dispatches messages to specialized sub-agents via a router LLM.
 kb = SQLiteKnowledge(db_path=":memory:")
 kb.load(DOCUMENT)
 
-model = AnthropicModel(model="claude-haiku-4-5-20251001")
+model = AnthropicModel(model="claude-haiku-5-5")
 agent = Agent(
     model=model,
     knowledge=kb,

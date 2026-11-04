@@ -2,6 +2,7 @@ from .web_search import web_search
 from .python_eval import python_eval
 from .read_file import read_file
 from .write_file import write_file
+from .file_tools import file_tools
 from .http_get import http_get
 from .calculator import calculator
 from .code_interpreter import code_interpreter
@@ -12,6 +13,7 @@ __all__ = [
     "python_eval",
     "read_file",
     "write_file",
+    "file_tools",
     "http_get",
     "calculator",
     "code_interpreter",

@@ -64,6 +64,11 @@ def _build_schema(fn: Callable) -> dict:
     }
 
 
+def timed_out(result: str) -> bool:
+    """True for the error string a tool call returns when it hit its timeout."""
+    return result.startswith("Error: tool '") and " timed out after " in result
+
+
 def tool(fn: Callable) -> Callable:
     fn._tool_schema = _build_schema(fn)
     _REGISTRY[fn.__name__] = fn
